@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hsmr-sdk"
+version = "0.1.0"
+description = "HSMR 外围能力 SDK: Foxglove 采集 / TF 变换 / 声纹+人脸验证 / ROS 发布 (纯吃数据, 不含推理)"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "opencv-python-headless",
+    "websockets",
+    "rosbags",
+    "requests",
+    "PyYAML",
+]
+
+[project.optional-dependencies]
+ros = ["zenoh-ros2-sdk"]
+
+[tool.setuptools.packages.find]
+include = ["hsmr_sdk*"]

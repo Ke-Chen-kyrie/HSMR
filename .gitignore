@@ -1,0 +1,26 @@
+# --- 数据 / 权重 / 运行时(不入库)---
+data_inputs/
+deploy/
+
+# 第三方 submodule(已由 HSMR-main/.gitmodules 声明,整体排除,含其嵌套 .git)
+thirdparty/
+
+# 生成的输出数据,可重新产生
+data_outputs/
+
+# 模型压缩包
+**/skel_models_v1.1.zip
+
+# --- 环境 / 缓存 / 本地工具 ---
+.venv*/
+.python*/
+.cache/
+.claude/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.vscode/
+
+# --- 通用 ---
+*.log
+.DS_Store

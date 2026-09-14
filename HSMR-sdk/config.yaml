@@ -1,0 +1,53 @@
+# HSMR-sdk 配置 (纯外围吃数据: 采集 / TF / 声纹人脸验证 / ROS 发布)
+# 不含模型推理配置 —— 推理由 HSMR-infer 负责, persons 数据喂给本 SDK.
+
+bridge:
+  url: "ws://localhost:8768"     # foxglove bridge; host 网络模式下用 localhost
+  # url: "ws://192.168.217.100:8768"
+
+topics:
+  prefix: "/zj_humanoid/sensor/realsense_head"
+  # 实际订阅列表由 hsmr_sdk.capture.build_topics 拼接: color/compressed
+  #   + aligned_depth_to_color/compressedDepth + camera_info + /tf_static + /tf
+
+frames:
+  optical: "realsense_head_color_optical_frame"
+  head: "HEAD"
+
+# 仅 HEAD 的兜底矩阵 (已验证 = /tf_static 实测值, 防止 /tf_static 未到时 HEAD 报错)。
+# TF 优先: /tf_static 到了就用 topic 的, 未到/没有才用这个。BASE/world 仍纯 TF。
+head_to_optical_fallback:
+  - [-0.04183417, -0.23690926, 0.97063067, 0.06555138]
+  - [-0.99910734, 0.01562472, -0.03924787, 0.03293372]
+  - [-0.00586765, -0.97140613, -0.23735143, 0.12592015]
+  - [0.0, 0.0, 0.0, 1.0]
+
+# zenoh-ros2-sdk → Foxglove 关节 marker 发布
+# (foxglove_bridge 用 rmw_zenoh_cpp, 连同一 zenoh router 即可被发现)
+ros_publish:
+  enabled: true
+  topic: "/hsmr/joints/markers"
+  router_ip: "127.0.0.1"   # 宿主机 /zenohd
+  router_port: 7447
+  publish_all: true         # true=发布全部 24 关节(选中高亮); false=只发选中的
+  # 非空=只发布这些关节 (关节名/索引), 优先于 publish_all. 例: ["pelvis"] 只发骨盆.
+  publish_joints: ["pelvis"]
+  # 标注图发布: 把骨架连线+指定关节 3D 坐标轴画在彩色图上, 发为 CompressedImage topic
+  annotated_enabled: true
+  annotated_topic: "/hsmr/joints/annotated"
+
+# 声纹+人脸交叉验证: 复用宿主机 user-identification 容器 (127.0.0.1:8001), 不重复部署.
+face_verify:
+  enabled: true
+  service_url: "http://127.0.0.1:8001"
+  voice_top_k: 3            # 声纹候选数
+  face_max_face_num: 10     # 人脸最大检测数
+  assoc_max_dist: 80        # 人脸bbox中心 ↔ 头关节2D 最大距离(像素)才关联
+
+# HSMR-infer 容器 (推理出 persons): sdk.infer_persons() 直连此服务取 24 关节.
+# host 网络模式下容器直绑 127.0.0.1:8010; 容器在别的机器则改 url.
+infer:
+  enabled: true
+  url: "http://127.0.0.1:8010"
+  timeout: 120              # /infer 单帧推理超时(秒), 模型加载后约 2-3s
+  max_instances: 5          # 每帧最多人数

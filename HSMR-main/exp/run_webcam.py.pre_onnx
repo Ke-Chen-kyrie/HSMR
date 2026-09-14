@@ -1,0 +1,511 @@
+from lib.kits.hsmr_demo import *
+from lib.kits.hsmr_demo import _img_det2patches
+from lib.platform.stage_profiler import StageProfiler
+
+import csv
+import json
+import os
+import threading
+import time
+
+from datetime import datetime
+
+
+def safe_source_label(source):
+    """Hide credentials when a stream URL is written to logs or metadata."""
+    value = str(source)
+    if '://' in value and '@' in value:
+        scheme, remainder = value.split('://', 1)
+        _, address = remainder.rsplit('@', 1)
+        return f'{scheme}://***:***@{address}'
+    return value
+
+
+class LatestFrameCapture:
+    """Continuously decode a source and retain only its newest frame."""
+
+    def __init__(
+        self,
+        source,
+        width=None,
+        height=None,
+        camera_fps=None,
+        camera_fourcc='MJPG',
+        loop_file=False,
+    ):
+        self.source = source
+        self.source_is_file = isinstance(source, str) and Path(source).is_file()
+        self.loop_file = loop_file
+        self.cap = cv2.VideoCapture(source)
+        if not self.cap.isOpened():
+            raise RuntimeError(
+                f'Cannot open camera/video source: {safe_source_label(source)}'
+            )
+
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if isinstance(source, int) and camera_fourcc:
+            self.cap.set(
+                cv2.CAP_PROP_FOURCC,
+                cv2.VideoWriter_fourcc(*camera_fourcc),
+            )
+        if width is not None:
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        if height is not None:
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if camera_fps is not None:
+            self.cap.set(cv2.CAP_PROP_FPS, camera_fps)
+
+        source_fps = float(self.cap.get(cv2.CAP_PROP_FPS))
+        self.source_fps = source_fps if source_fps > 0 else 30.0
+        self.frame = None
+        self.sequence = -1
+        self.captured_monotonic = None
+        self.captured_unix = None
+        self.error = None
+        self.eof = False
+        self.stopped = threading.Event()
+        self.condition = threading.Condition()
+        self.thread = threading.Thread(target=self._run, daemon=True)
+
+    def properties(self):
+        fourcc_value = int(self.cap.get(cv2.CAP_PROP_FOURCC))
+        fourcc = ''.join(
+            chr((fourcc_value >> (8 * index)) & 0xFF)
+            for index in range(4)
+        )
+        return {
+            'width': int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            'height': int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            'fps': float(self.cap.get(cv2.CAP_PROP_FPS)),
+            'fourcc': fourcc,
+        }
+
+    def start(self):
+        self.thread.start()
+        return self
+
+    def _run(self):
+        file_next_due = time.monotonic()
+        while not self.stopped.is_set():
+            if self.source_is_file:
+                delay = file_next_due - time.monotonic()
+                if delay > 0:
+                    self.stopped.wait(delay)
+                file_next_due += 1.0 / self.source_fps
+
+            ok, frame = self.cap.read()
+            if not ok:
+                if self.source_is_file and self.loop_file:
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    file_next_due = time.monotonic()
+                    continue
+                with self.condition:
+                    self.eof = True
+                    self.condition.notify_all()
+                break
+
+            with self.condition:
+                self.frame = frame
+                self.sequence += 1
+                self.captured_monotonic = time.monotonic()
+                self.captured_unix = time.time()
+                self.condition.notify_all()
+
+        self.cap.release()
+
+    def snapshot(self, after_sequence=None, timeout=10.0):
+        deadline = time.monotonic() + timeout
+        with self.condition:
+            while (
+                not self.stopped.is_set()
+                and not self.eof
+                and (
+                    self.frame is None
+                    or (after_sequence is not None and self.sequence <= after_sequence)
+                )
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self.condition.wait(remaining)
+
+            if self.frame is None:
+                return None
+            return {
+                'frame_bgr': self.frame.copy(),
+                'sequence': self.sequence,
+                'captured_monotonic': self.captured_monotonic,
+                'captured_unix': self.captured_unix,
+            }
+
+    def stop(self):
+        self.stopped.set()
+        with self.condition:
+            self.condition.notify_all()
+        self.thread.join(timeout=2.0)
+        if self.thread.is_alive():
+            self.cap.release()
+
+
+def parse_source(value):
+    return int(value) if value.lstrip('-').isdigit() else value
+
+
+def parse_live_args():
+    parser = argparse.ArgumentParser(
+        description='Sample the latest camera frame periodically and run persistent HSMR inference.'
+    )
+    parser.add_argument(
+        '--source',
+        type=str,
+        default='0',
+        help='Camera index (for example 0), RTSP/HTTP URL, or video file.',
+    )
+    parser.add_argument('--interval', type=float, default=3.0, help='Sampling interval in seconds.')
+    parser.add_argument('--max_frames', type=int, default=0, help='Stop after N inferred frames; 0 means run forever.')
+    parser.add_argument('--output_path', type=str, default=str(PM.outputs/'webcam'), help='Output directory.')
+    parser.add_argument('--model_root', type=str, default=DEFAULT_HSMR_ROOT)
+    parser.add_argument('--device', type=str, default='cuda:0')
+    parser.add_argument('--det_mis', type=int, default=512)
+    parser.add_argument(
+        '--no_detector_amp',
+        action='store_false',
+        dest='detector_amp',
+        help='Disable FP16 autocast for the live detector.',
+    )
+    parser.set_defaults(detector_amp=True)
+    parser.add_argument('--max_instances', type=int, default=1)
+    parser.add_argument('--mesh_bs', type=int, default=1)
+    parser.add_argument('--ignore_skel', action='store_true', help='Skip skeleton generation and rendering.')
+    parser.add_argument('--width', type=int, default=None, help='Requested camera width.')
+    parser.add_argument('--height', type=int, default=None, help='Requested camera height.')
+    parser.add_argument('--camera_fps', type=float, default=None, help='Requested camera FPS.')
+    parser.add_argument('--camera_fourcc', type=str, default='MJPG', help='Requested USB camera FOURCC.')
+    parser.add_argument('--loop_file', action='store_true', help='Loop when --source is a video file.')
+    parser.add_argument('--no_history', action='store_true', help='Only update latest.jpg instead of saving every result.')
+    args = parser.parse_args()
+    if args.interval <= 0:
+        parser.error('--interval must be greater than zero.')
+    if args.max_frames < 0:
+        parser.error('--max_frames must be zero or positive.')
+    if len(args.camera_fourcc) != 4:
+        parser.error('--camera_fourcc must contain exactly four characters.')
+    return args
+
+
+def atomic_save_rgb_jpg(image_rgb, output_path):
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = output_path.parent / f'.{output_path.name}.tmp.jpg'
+    ok = cv2.imwrite(
+        str(temporary_path),
+        cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR),
+    )
+    if not ok:
+        raise RuntimeError(f'Failed to save image: {temporary_path}')
+    os.replace(temporary_path, output_path)
+
+
+def atomic_save_json(data, output_path):
+    output_path = Path(output_path)
+    temporary_path = output_path.parent / f'.{output_path.name}.tmp'
+    with open(temporary_path, 'w', encoding='utf-8') as file:
+        json.dump(data, file, indent=2, ensure_ascii=False)
+    os.replace(temporary_path, output_path)
+
+
+def append_latency_csv(output_path, row):
+    output_path = Path(output_path)
+    fieldnames = [
+        'sample_id',
+        'source_sequence',
+        'captured_unix',
+        'capture_age_ms',
+        'persons',
+        'end_to_end_ms',
+        'detector_ms',
+        'hsmr_ms',
+        'mesh_ms',
+        'render_ms',
+        'save_ms',
+        'deadline_missed',
+    ]
+    new_file = not output_path.exists()
+    with open(output_path, 'a', newline='', encoding='utf-8') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        if new_file:
+            writer.writeheader()
+        writer.writerow({key: row.get(key) for key in fieldnames})
+        file.flush()
+
+
+def stage_total(profile_data, prefix):
+    return sum(
+        stage['total_seconds']
+        for name, stage in profile_data['stages'].items()
+        if name.startswith(prefix)
+    )
+
+
+def infer_latest_frame(
+    frame_bgr,
+    detector,
+    pipeline,
+    args,
+    sample_id,
+    source_sequence,
+    captured_monotonic,
+    captured_unix,
+):
+    profiler = StageProfiler(enabled=True, device=args.device)
+    detector.profiler = profiler
+    pipeline.stage_profiler = profiler
+    profiler.set_metadata(
+        sample_id=sample_id,
+        source_sequence=source_sequence,
+        captured_unix=captured_unix,
+        device=args.device,
+        include_skeleton=not args.ignore_skel,
+    )
+
+    capture_age_ms = (time.monotonic() - captured_monotonic) * 1000.0
+    with profiler.measure('01_live.cpu_bgr_to_rgb'):
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
+    detector_outputs = detector([frame_rgb])
+    if args.device.startswith('cuda'):
+        torch.cuda.empty_cache()
+
+    with profiler.measure('04_patches.cpu_filter_crop_and_resize'):
+        patches, bbx_cs = _img_det2patches(
+            frame_rgb,
+            detector_outputs[0][0],
+            detector_outputs[1][0],
+            args.max_instances,
+        )
+
+    persons = len(patches)
+    if persons == 0:
+        with profiler.measure('08_render.cpu_no_detection_annotation'):
+            rendered = frame_rgb.copy()
+            cv2.putText(
+                rendered,
+                'No person detected',
+                (24, 48),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1.0,
+                (255, 80, 80),
+                2,
+                cv2.LINE_AA,
+            )
+        profiler.finish()
+        return rendered, profiler.summary(), persons, capture_age_ms
+
+    patches = patches.astype(np.float32)
+    with profiler.measure('06_hsmr.cpu_normalize_and_transpose_patches'):
+        patches_normalized = (patches - IMG_MEAN_255) / IMG_STD_255
+        patches_normalized = np.ascontiguousarray(
+            patches_normalized.transpose(0, 3, 1, 2)
+        )
+
+    with torch.no_grad():
+        outputs = pipeline(patches_normalized)
+    with profiler.measure(
+        '06_hsmr.gpu_to_cpu_parameters',
+        cuda=args.device.startswith('cuda'),
+    ):
+        pd_params = {
+            key: value.detach().cpu().clone()
+            for key, value in outputs['pd_params'].items()
+        }
+        pd_cam_t = outputs['pd_cam_t'].detach().cpu().clone()
+
+    m_skin, m_skel = prepare_mesh(
+        pipeline,
+        pd_params,
+        include_skeleton=not args.ignore_skel,
+        batch_size=args.mesh_bs,
+        profiler=profiler,
+    )
+    det_meta = {
+        'n_patch_per_img': [persons],
+        'bbx_cs_per_img': [bbx_cs],
+        'bbx_cs': np.asarray(bbx_cs),
+    }
+    rendered, _ = visualize_full_img(
+        pd_cam_t,
+        [frame_rgb],
+        det_meta,
+        m_skin,
+        m_skel,
+        profiler=profiler,
+    )
+    profiler.finish()
+    return rendered[0], profiler.summary(), persons, capture_age_ms
+
+
+def main():
+    args = parse_live_args()
+    source = parse_source(args.source)
+    outputs_root = Path(args.output_path)
+    history_root = outputs_root / 'frames'
+    outputs_root.mkdir(parents=True, exist_ok=True)
+    if not args.no_history:
+        history_root.mkdir(parents=True, exist_ok=True)
+
+    get_logger(brief=True).info('🧱 Loading persistent detector and HSMR models once.')
+    startup_started = time.perf_counter()
+    detector_started = time.perf_counter()
+    detector = build_detector(
+        batch_size=1,
+        max_img_size=args.det_mis,
+        device=args.device,
+        use_amp=args.detector_amp,
+    )
+    if args.device.startswith('cuda'):
+        torch.cuda.synchronize(torch.device(args.device))
+    detector_init_seconds = time.perf_counter() - detector_started
+
+    pipeline_started = time.perf_counter()
+    pipeline = build_inference_pipeline(
+        model_root=args.model_root,
+        device=args.device,
+    )
+    if args.device.startswith('cuda'):
+        torch.cuda.synchronize(torch.device(args.device))
+    hsmr_init_seconds = time.perf_counter() - pipeline_started
+    startup_data = {
+        'detector_init_seconds': detector_init_seconds,
+        'hsmr_init_seconds': hsmr_init_seconds,
+        'total_startup_seconds': time.perf_counter() - startup_started,
+        'device': args.device,
+        'gpu_name': (
+            torch.cuda.get_device_name(torch.device(args.device))
+            if args.device.startswith('cuda') and torch.cuda.is_available()
+            else None
+        ),
+        'source': safe_source_label(source),
+        'interval_seconds': args.interval,
+        'include_skeleton': not args.ignore_skel,
+        'detector_amp': args.detector_amp,
+    }
+    capture = LatestFrameCapture(
+        source=source,
+        width=args.width,
+        height=args.height,
+        camera_fps=args.camera_fps,
+        camera_fourcc=args.camera_fourcc,
+        loop_file=args.loop_file,
+    )
+    startup_data['capture'] = capture.properties()
+    atomic_save_json(startup_data, outputs_root / 'startup.json')
+    capture.start()
+    first = capture.snapshot(timeout=15.0)
+    if first is None:
+        capture.stop()
+        raise RuntimeError(
+            f'No frame received from source: {safe_source_label(source)}'
+        )
+
+    get_logger(brief=True).info(
+        f'📷 Live inference started: source={safe_source_label(source)}, '
+        f'interval={args.interval:.3f}s. '
+        'Press Ctrl+C to stop.'
+    )
+    sample_id = 0
+    last_sequence = -1
+    next_due = time.monotonic()
+    try:
+        while args.max_frames == 0 or sample_id < args.max_frames:
+            wait_seconds = next_due - time.monotonic()
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+
+            snapshot = capture.snapshot(after_sequence=last_sequence, timeout=max(2.0, args.interval))
+            if snapshot is None:
+                if capture.eof:
+                    get_logger(brief=True).info('Video source reached EOF.')
+                    break
+                get_logger(brief=True).warning('No new camera frame arrived before timeout.')
+                next_due += args.interval
+                continue
+
+            sample_id += 1
+            last_sequence = snapshot['sequence']
+            frame_started = time.perf_counter()
+            rendered, profile_data, persons, capture_age_ms = infer_latest_frame(
+                frame_bgr=snapshot['frame_bgr'],
+                detector=detector,
+                pipeline=pipeline,
+                args=args,
+                sample_id=sample_id,
+                source_sequence=last_sequence,
+                captured_monotonic=snapshot['captured_monotonic'],
+                captured_unix=snapshot['captured_unix'],
+            )
+
+            save_started = time.perf_counter()
+            atomic_save_rgb_jpg(rendered, outputs_root / 'latest.jpg')
+            if not args.no_history:
+                timestamp = datetime.fromtimestamp(
+                    snapshot['captured_unix']
+                ).strftime('%Y%m%d-%H%M%S-%f')[:-3]
+                atomic_save_rgb_jpg(
+                    rendered,
+                    history_root / f'{sample_id:06d}-{timestamp}.jpg',
+                )
+            save_seconds = time.perf_counter() - save_started
+            end_to_end_seconds = time.perf_counter() - frame_started
+
+            row = {
+                'sample_id': sample_id,
+                'source_sequence': last_sequence,
+                'captured_unix': snapshot['captured_unix'],
+                'capture_age_ms': capture_age_ms,
+                'persons': persons,
+                'end_to_end_ms': end_to_end_seconds * 1000.0,
+                'detector_ms': stage_total(profile_data, '03_detector.') * 1000.0,
+                'hsmr_ms': stage_total(profile_data, '06_hsmr.') * 1000.0,
+                'mesh_ms': stage_total(profile_data, '07_mesh.') * 1000.0,
+                'render_ms': stage_total(profile_data, '08_render.') * 1000.0,
+                'save_ms': max(0.0, save_seconds) * 1000.0,
+                'deadline_missed': end_to_end_seconds > args.interval,
+            }
+            latest_data = {
+                **row,
+                'profile': profile_data,
+            }
+            atomic_save_json(latest_data, outputs_root / 'latest.json')
+            with open(outputs_root / 'latency.jsonl', 'a', encoding='utf-8') as file:
+                file.write(json.dumps(latest_data, ensure_ascii=False) + '\n')
+                file.flush()
+            append_latency_csv(outputs_root / 'latency.csv', row)
+
+            get_logger(brief=True).info(
+                f'✅ sample={sample_id} source_frame={last_sequence} persons={persons} '
+                f'latency={end_to_end_seconds:.3f}s capture_age={capture_age_ms:.1f}ms '
+                f'deadline_missed={row["deadline_missed"]}'
+            )
+
+            next_due += args.interval
+            now = time.monotonic()
+            if next_due <= now:
+                skipped_slots = int((now - next_due) // args.interval) + 1
+                next_due += skipped_slots * args.interval
+                get_logger(brief=True).warning(
+                    f'Inference exceeded the schedule; skipped {skipped_slots} stale slot(s).'
+                )
+    except KeyboardInterrupt:
+        get_logger(brief=True).info('Stopping on Ctrl+C.')
+    finally:
+        capture.stop()
+        detector.profiler = None
+        pipeline.stage_profiler = None
+
+    get_logger(brief=True).info(
+        f'🎊 Live inference stopped after {sample_id} samples. Results: {outputs_root}'
+    )
+
+
+if __name__ == '__main__':
+    main()

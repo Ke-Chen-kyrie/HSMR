@@ -1,0 +1,5 @@
+# HSMR-render 渲染服务依赖 (其余依赖在共享 venv: torch/detectron2/onnxruntime/pyrender/websockets/rosbags)
+fastapi
+uvicorn[standard]
+python-multipart
+PyYAML

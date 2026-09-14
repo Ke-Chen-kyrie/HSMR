@@ -1,0 +1,364 @@
+{
+  "sample_id": 2,
+  "source_sequence": 1586,
+  "captured_unix": 1785753045.0014625,
+  "capture_age_ms": 8666.379415999472,
+  "persons": 2,
+  "end_to_end_ms": 19789.419029999408,
+  "detector_ms": 1460.8399650005595,
+  "hsmr_ms": 5226.66318300071,
+  "mesh_ms": 695.7885879983223,
+  "render_ms": 1817.5473079954827,
+  "save_ms": 167.37240600014047,
+  "process_rss_mb": 7759.258,
+  "process_peak_rss_mb": 11554.031,
+  "system_memory_total_mb": 62840.648,
+  "system_memory_available_mb": 37316.02,
+  "cuda_memory_free_mb": 37066.008,
+  "cuda_memory_total_mb": 62840.648,
+  "cuda_memory_used_mb": 25774.641,
+  "torch_cuda_allocated_mb": 2753.876,
+  "torch_cuda_reserved_mb": 2888.0,
+  "torch_cuda_peak_allocated_mb": 5587.692,
+  "torch_cuda_peak_reserved_mb": 7028.0,
+  "gpu_utilization_mean_percent": 34.058,
+  "gpu_utilization_peak_percent": 99.9,
+  "gpu_utilization_samples": 83,
+  "deadline_missed": true,
+  "performance": {
+    "process_rss_mb": 7759.258,
+    "process_peak_rss_mb": 11554.031,
+    "system_memory_total_mb": 62840.648,
+    "system_memory_available_mb": 37316.02,
+    "cuda_memory_free_mb": 37066.008,
+    "cuda_memory_total_mb": 62840.648,
+    "cuda_memory_used_mb": 25774.641,
+    "torch_cuda_allocated_mb": 2753.876,
+    "torch_cuda_reserved_mb": 2888.0,
+    "torch_cuda_peak_allocated_mb": 5587.692,
+    "torch_cuda_peak_reserved_mb": 7028.0,
+    "gpu_utilization_mean_percent": 34.058,
+    "gpu_utilization_peak_percent": 99.9,
+    "gpu_utilization_samples": 83
+  },
+  "profile": {
+    "metadata": {
+      "sample_id": 2,
+      "source_sequence": 1586,
+      "captured_unix": 1785753045.0014625,
+      "device": "cuda:0",
+      "backend": "onnx",
+      "include_skeleton": true,
+      "end_to_end_seconds": 10.957698629999868,
+      "performance": {
+        "process_rss_mb": 7759.258,
+        "process_peak_rss_mb": 11554.031,
+        "system_memory_total_mb": 62840.648,
+        "system_memory_available_mb": 37316.02,
+        "cuda_memory_free_mb": 37066.008,
+        "cuda_memory_total_mb": 62840.648,
+        "cuda_memory_used_mb": 25774.641,
+        "torch_cuda_allocated_mb": 2753.876,
+        "torch_cuda_reserved_mb": 2888.0,
+        "torch_cuda_peak_allocated_mb": 5587.692,
+        "torch_cuda_peak_reserved_mb": 7028.0,
+        "gpu_utilization_mean_percent": 34.058,
+        "gpu_utilization_peak_percent": 99.9,
+        "gpu_utilization_samples": 83
+      }
+    },
+    "stages": {
+      "01_live.cpu_bgr_to_rgb": {
+        "calls": 1,
+        "total_seconds": 0.0013824550005665515,
+        "mean_seconds": 0.0013824550005665515,
+        "min_seconds": 0.0013824550005665515,
+        "max_seconds": 0.0013824550005665515,
+        "percent_end_to_end": 0.01261628967219158
+      },
+      "03_detector.cpu_resize_augment_tensorize": {
+        "calls": 1,
+        "total_seconds": 0.015478408000490163,
+        "mean_seconds": 0.015478408000490163,
+        "min_seconds": 0.015478408000490163,
+        "max_seconds": 0.015478408000490163,
+        "percent_end_to_end": 0.14125601116746855
+      },
+      "03_detector.cpu_to_gpu_images": {
+        "calls": 1,
+        "total_seconds": 0.10434747100043751,
+        "mean_seconds": 0.10434747100043751,
+        "min_seconds": 0.10434747100043751,
+        "max_seconds": 0.10434747100043751,
+        "percent_end_to_end": 0.9522754231874578
+      },
+      "03_detector.gpu_inference_and_postprocess": {
+        "calls": 1,
+        "total_seconds": 1.34044798099967,
+        "mean_seconds": 1.34044798099967,
+        "min_seconds": 1.34044798099967,
+        "max_seconds": 1.34044798099967,
+        "percent_end_to_end": 12.232933449454489
+      },
+      "03_detector.gpu_to_cpu_predictions": {
+        "calls": 1,
+        "total_seconds": 0.0005661049999616807,
+        "mean_seconds": 0.0005661049999616807,
+        "min_seconds": 0.0005661049999616807,
+        "max_seconds": 0.0005661049999616807,
+        "percent_end_to_end": 0.00516627641512064
+      },
+      "04_patches.cpu_filter_crop_and_resize": {
+        "calls": 1,
+        "total_seconds": 0.011962643000515527,
+        "mean_seconds": 0.011962643000515527,
+        "min_seconds": 0.011962643000515527,
+        "max_seconds": 0.011962643000515527,
+        "percent_end_to_end": 0.10917112620495269
+      },
+      "06_hsmr.cpu_normalize_and_transpose_patches": {
+        "calls": 1,
+        "total_seconds": 0.0022312990004138555,
+        "mean_seconds": 0.0022312990004138555,
+        "min_seconds": 0.0022312990004138555,
+        "max_seconds": 0.0022312990004138555,
+        "percent_end_to_end": 0.02036284329179331
+      },
+      "06_hsmr.cpu_onnx_outputs_to_torch": {
+        "calls": 1,
+        "total_seconds": 0.0002447080005367752,
+        "mean_seconds": 0.0002447080005367752,
+        "min_seconds": 0.0002447080005367752,
+        "max_seconds": 0.0002447080005367752,
+        "percent_end_to_end": 0.0022332061576033524
+      },
+      "06_hsmr.gpu_to_cpu_parameters": {
+        "calls": 1,
+        "total_seconds": 0.0002897650010709185,
+        "mean_seconds": 0.0002897650010709185,
+        "min_seconds": 0.0002897650010709185,
+        "max_seconds": 0.0002897650010709185,
+        "percent_end_to_end": 0.0026443965184222446
+      },
+      "06_hsmr.onnxruntime_inference": {
+        "calls": 1,
+        "total_seconds": 5.223897410998688,
+        "mean_seconds": 5.223897410998688,
+        "min_seconds": 5.223897410998688,
+        "max_seconds": 5.223897410998688,
+        "percent_end_to_end": 47.6733079398329
+      },
+      "07_mesh.cpu_concatenate_vertices": {
+        "calls": 1,
+        "total_seconds": 0.005076404999272199,
+        "mean_seconds": 0.005076404999272199,
+        "min_seconds": 0.005076404999272199,
+        "max_seconds": 0.005076404999272199,
+        "percent_end_to_end": 0.04632729162101678
+      },
+      "07_mesh.cpu_to_gpu_body_parameters": {
+        "calls": 2,
+        "total_seconds": 0.00203968099958729,
+        "mean_seconds": 0.001019840499793645,
+        "min_seconds": 0.0003370609992998652,
+        "max_seconds": 0.0017026200002874248,
+        "percent_end_to_end": 0.018614136676501337
+      },
+      "07_mesh.gpu_skin_and_skeleton_shared_forward": {
+        "calls": 2,
+        "total_seconds": 0.6827660039998591,
+        "mean_seconds": 0.34138300199992955,
+        "min_seconds": 0.334985935000077,
+        "max_seconds": 0.3477800689997821,
+        "percent_end_to_end": 6.230925188347395
+      },
+      "07_mesh.gpu_to_cpu_3d_joints": {
+        "calls": 2,
+        "total_seconds": 0.0032026770004449645,
+        "mean_seconds": 0.0016013385002224823,
+        "min_seconds": 0.0007525239998358302,
+        "max_seconds": 0.0024501530006091343,
+        "percent_end_to_end": 0.02922764267011971
+      },
+      "07_mesh.gpu_to_cpu_skeleton_vertices": {
+        "calls": 2,
+        "total_seconds": 0.001947712000401225,
+        "mean_seconds": 0.0009738560002006125,
+        "min_seconds": 0.0008911189997888869,
+        "max_seconds": 0.001056593000612338,
+        "percent_end_to_end": 0.017774827234879415
+      },
+      "07_mesh.gpu_to_cpu_skin_vertices": {
+        "calls": 2,
+        "total_seconds": 0.0007561089987575542,
+        "mean_seconds": 0.0003780544993787771,
+        "min_seconds": 0.0003164209992974065,
+        "max_seconds": 0.0004396879994601477,
+        "percent_end_to_end": 0.006900253641649599
+      },
+      "08_render.cpu_3d_annotation": {
+        "calls": 1,
+        "total_seconds": 0.006780865998734953,
+        "mean_seconds": 0.006780865998734953,
+        "min_seconds": 0.006780865998734953,
+        "max_seconds": 0.006780865998734953,
+        "percent_end_to_end": 0.06188220928225177
+      },
+      "08_render.cpu_blend_and_splice": {
+        "calls": 2,
+        "total_seconds": 0.006027961999279796,
+        "mean_seconds": 0.003013980999639898,
+        "min_seconds": 0.0028884759994980413,
+        "max_seconds": 0.003139485999781755,
+        "percent_end_to_end": 0.05501120447660887
+      },
+      "08_render.cpu_camera_transform": {
+        "calls": 1,
+        "total_seconds": 0.000806541998827015,
+        "mean_seconds": 0.000806541998827015,
+        "min_seconds": 0.000806541998827015,
+        "max_seconds": 0.000806541998827015,
+        "percent_end_to_end": 0.007360505394982055
+      },
+      "08_render.opengl_skeleton_mesh": {
+        "calls": 1,
+        "total_seconds": 1.2716211119986838,
+        "mean_seconds": 1.2716211119986838,
+        "min_seconds": 1.2716211119986838,
+        "max_seconds": 1.2716211119986838,
+        "percent_end_to_end": 11.604819177242687
+      },
+      "08_render.opengl_skin_mesh": {
+        "calls": 1,
+        "total_seconds": 0.5323108259999572,
+        "mean_seconds": 0.5323108259999572,
+        "min_seconds": 0.5323108259999572,
+        "max_seconds": 0.5323108259999572,
+        "percent_end_to_end": 4.85787065308223
+      },
+      "09_output.cpu_build_3d_record": {
+        "calls": 1,
+        "total_seconds": 0.0028796759997931076,
+        "mean_seconds": 0.0028796759997931076,
+        "min_seconds": 0.0028796759997931076,
+        "max_seconds": 0.0028796759997931076,
+        "percent_end_to_end": 0.026279934291212954
+      }
+    },
+    "notes": [
+      "CUDA stages use explicit synchronization for accurate boundaries.",
+      "Stage totals are exclusive unless a stage name explicitly says total.",
+      "Video decode combines compressed-file reads and CPU decoding because FFmpeg performs them as one streaming operation.",
+      "SKEL skin and skeleton share one kinematic forward pass; their GPU generation is reported as a combined stage.",
+      "Video encoding and file writing are combined because FFmpeg encodes and writes as one streaming operation."
+    ]
+  },
+  "coordinates_3d_latest_path": "data_outputs/webcam_head_onnx/latest_3d.json",
+  "coordinates_3d_history_path": "data_outputs/webcam_head_onnx/frames/000002-20260803-183045-001.3d.json",
+  "persons_3d_summary": [
+    {
+      "person_index": 0,
+      "crop_bbox_left_top_right_bottom_px": [
+        575.141,
+        181.505,
+        1105.67,
+        712.035
+      ],
+      "detection": {
+        "score": 0.998653,
+        "bbox_left_top_right_bottom_px": [
+          733.972,
+          181.505,
+          946.839,
+          712.035
+        ]
+      },
+      "position": {
+        "model_origin_crop_virtual_camera_m": [
+          0.00051,
+          0.339111,
+          27.54821
+        ],
+        "model_origin_full_image_virtual_camera_m": [
+          0.533309,
+          0.569799,
+          13.293033
+        ],
+        "pelvis_model_origin_relative_m": [
+          -0.018616,
+          -0.231794,
+          0.176737
+        ],
+        "pelvis_full_image_virtual_camera_m": [
+          0.514692,
+          0.338005,
+          13.46977
+        ],
+        "pelvis_optical_axis_depth_m": 13.46977,
+        "pelvis_distance_from_virtual_camera_m": 13.483837
+      },
+      "orientation": {
+        "facing_camera_yaw_deg": 12.779,
+        "forward_elevation_deg": -9.182,
+        "coarse_facing": "toward_camera",
+        "body_forward_unit_model_camera": [
+          0.218354,
+          0.159563,
+          -0.962736
+        ]
+      }
+    },
+    {
+      "person_index": 1,
+      "crop_bbox_left_top_right_bottom_px": [
+        139.71,
+        238.957,
+        191.009,
+        290.256
+      ],
+      "detection": {
+        "score": 0.69765,
+        "bbox_left_top_right_bottom_px": [
+          148.198,
+          238.957,
+          182.52,
+          290.256
+        ]
+      },
+      "position": {
+        "model_origin_crop_virtual_camera_m": [
+          0.021042,
+          0.775391,
+          10.19368
+        ],
+        "model_origin_full_image_virtual_camera_m": [
+          -4.807963,
+          -0.19514,
+          50.870087
+        ],
+        "pelvis_model_origin_relative_m": [
+          0.012198,
+          -0.1972,
+          0.16867
+        ],
+        "pelvis_full_image_virtual_camera_m": [
+          -4.795765,
+          -0.39234,
+          51.038757
+        ],
+        "pelvis_optical_axis_depth_m": 51.038757,
+        "pelvis_distance_from_virtual_camera_m": 51.265076
+      },
+      "orientation": {
+        "facing_camera_yaw_deg": -12.841,
+        "forward_elevation_deg": 18.341,
+        "coarse_facing": "toward_camera",
+        "body_forward_unit_model_camera": [
+          -0.210963,
+          -0.314675,
+          -0.925459
+        ]
+      }
+    }
+  ]
+}

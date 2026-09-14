@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSMR 人体追踪流程 — 分步图解</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;padding:0}
+  .wrap{max-width:860px;margin:0 auto;padding:24px 16px}
+  h1{font-size:26px;color:#e6edf3;text-align:center;margin:8px 0}
+  .overview{text-align:center;font-size:14px;color:#8b949e;background:#161b22;border-radius:12px;padding:14px;margin:12px 0 32px;border:1px solid #21262d;line-height:1.8}
+  .overview b{color:#ffd166}
+  .step{background:#161b22;border-radius:14px;padding:22px;margin:22px 0;border:1px solid #21262d}
+  .step-num{display:inline-block;background:#4dabf7;color:#fff;border-radius:20px;padding:3px 14px;font-size:14px;font-weight:bold;margin-bottom:12px}
+  .step h2{font-size:20px;color:#e6edf3;margin:6px 0 4px}
+  .step .one{font-size:14px;color:#c9d1d9;margin:6px 0;line-height:1.7}
+  .step .one b{color:#ffd166}
+  .step img{width:100%;max-width:640px;display:block;margin:12px auto;border-radius:10px;border:1px solid #30363d}
+  .analogy{background:#1a2e1a;border-left:4px solid #3fb950;border-radius:6px;padding:10px 14px;font-size:13px;margin:10px 0;line-height:1.6}
+  .points{background:#0d1117;border-radius:8px;padding:10px 14px;font-size:12px;color:#8b949e;margin:8px 0;line-height:1.7}
+  .points b{color:#ffd166}
+  .arrow-strip{text-align:center;font-size:26px;color:#ffd166;margin:6px 0}
+  footer{text-align:center;color:#666;font-size:12px;margin:30px 0 20px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🤖 机器人怎么知道"人在哪 + 面朝哪"</h1>
+  <div class="overview">
+    一共 <b>5 步</b>，像一个故事：<br>
+    <b>相机看到人</b> → <b>量出距离</b> → <b>算出 3D 位置</b> → <b>换到机器人坐标</b> → <b>看人朝哪</b>
+  </div>
+
+  <!-- 步骤1 -->
+  <div class="step">
+    <span class="step-num">第 1 步</span>
+    <h2>📷 相机看到人</h2>
+    <div class="one">
+      机器人头上的摄像头拍下一张图，<b>认出人</b>（绿框），并在人身上标出 <b>44 个关节点</b>（鼻子、肩、肘、膝…）。
+    </div>
+    <img src="_flow/latest.jpg" alt="检测图">
+    <div class="analogy">
+      🧠 类比：就像你用照片找朋友——先圈出人，再指出"这是左肩、这是右膝"。这一步给的是 <b>2D 像素位置</b>（在画面哪个位置）。
+    </div>
+    <div class="points">
+      <b>关键点：</b>44 个关节点，每个是图像里的一个像素坐标 (u, v)。<br>
+      <b>还缺什么：</b>光有 2D 位置，不知道人多远、多高。
+    </div>
+  </div>
+
+  <div class="arrow-strip">↓</div>
+
+  <!-- 步骤2 -->
+  <div class="step">
+    <span class="step-num">第 2 步</span>
+    <h2>📏 量出距离（深度）</h2>
+    <div class="one">
+      摄像头里的 <b>深度传感器</b>（红外测距）给出每个像素到相机的<b>真实距离</b>。蓝色越深越近。
+    </div>
+    <img src="_flow/latest_depth.png" alt="深度图">
+    <div class="analogy">
+      🧠 类比：就像用<b>卷尺</b>量每个人身上的点到相机的距离。这一步给的是 <b>米</b>（真实距离，不是猜的）。
+    </div>
+    <div class="points">
+      <b>关键点：</b>在"第 1 步的关节点像素"处，读深度图的数值 → 得到那个关节离相机多远（米）。<br>
+      <b>注意：</b>这一步是关键——有了真实距离，才不靠"猜"。
+    </div>
+  </div>
+
+  <div class="arrow-strip">↓</div>
+
+  <!-- 步骤3 -->
+  <div class="step">
+    <span class="step-num">第 3 步</span>
+    <h2>📍 算出 3D 位置</h2>
+    <div class="one">
+      每个关节点 = <b>2D 像素</b> + <b>真实距离</b> → 算出它在<b>相机 3D 空间</b>的坐标（X 右、Y 下、Z 前，单位米）。骨盆在相机前方约 1.7 米。
+    </div>
+    <img src="_flow/step3.png" alt="3D定位">
+    <div class="analogy">
+      🧠 类比：知道"照片里人在中间偏右" + "离相机 1.7 米" → 就知道人站在相机前方哪个<b>真实位置</b>。
+    </div>
+    <div class="points">
+      <b>关键点：</b>此时得到的是<b>相机坐标</b>（相对摄像头）。相机在机器人头上，所以还不是机器人坐标。
+    </div>
+  </div>
+
+  <div class="arrow-strip">↓</div>
+
+  <!-- 步骤4 -->
+  <div class="step">
+    <span class="step-num">第 4 步</span>
+    <h2>🤖 换到机器人坐标（BASE）</h2>
+    <div class="one">
+      用机器人的 <b>TF 坐标变换</b>，把"相对相机的坐标"换成"相对<b>机器人基座（BASE）</b>的坐标"。这样导航就知道人在机器人<b>前方/左侧/上方</b>多远。
+    </div>
+    <img src="_flow/step4.png" alt="BASE坐标">
+    <div class="analogy">
+      🧠 类比：相机在机器人头上，测得"人在这"——但要告诉底盘"人往左走 1.5 米"，
+      得先把头部坐标系<b>换算成底座坐标系</b>（就像从"照相机看"换算成"从地上看"）。
+    </div>
+    <div class="points">
+      <b>关键点：</b>骨盆在 BASE 系 ≈ 前方 0.32m、左侧 1.58m、高 0.38m。<br>
+      <b>这条链：</b>相机 → 头 → 颈 → 腰 → 膝 → 踝 → BASE（机器人的运动学链）。
+    </div>
+  </div>
+
+  <div class="arrow-strip">↓</div>
+
+  <!-- 步骤5 -->
+  <div class="step">
+    <span class="step-num">第 5 步</span>
+    <h2>🧭 看人朝哪（旋转矩阵）</h2>
+    <div class="one">
+      除了位置，还要知道人<b>面朝哪</b>。用 <b>旋转矩阵（3×3）</b>或 <b>四元数</b>表示——金色箭头就是人的前向。
+    </div>
+    <img src="_flow/step5.png" alt="朝向">
+    <div class="analogy">
+      🧠 类比：位置告诉你"人在哪"，旋转矩阵告诉你"人在<b>面朝你</b>还是<b>背对你</b>，或<b>侧着</b>"。
+      导航靠它判断该不该避让、往哪边让。
+    </div>
+    <div class="points">
+      <b>关键点：</b>用完整的旋转矩阵 / 四元数（含俯仰、侧倾、转向），<b>不要只用 yaw</b>（yaw 会丢信息）。<br>
+      <b>实测：</b>四元数 [0.11, -0.48, 0.15, 0.86]，深度有效 42/44 关节。
+    </div>
+  </div>
+
+  <footer>全部数据来自机器人实测 · 5 步链路已打通（虚拟相机→真实深度→光学系→BASE）</footer>
+</div>
+</body>
+</html>

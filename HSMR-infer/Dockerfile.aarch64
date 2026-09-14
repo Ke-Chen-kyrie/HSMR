@@ -1,0 +1,20 @@
+# HSMR-infer Dockerfile (aarch64/Jetson) —— 复用已发布的 render 镜像作为运行时基座
+#
+# 原理: hsmr-render:20260831 镜像已含整套 aarch64 依赖
+#       (torch 2.8 + detectron2 0.6 + onnxruntime 1.23 + pyrender + skel 包),
+#       无需重编译 CUDA 栈。本文件只把 HSMR-infer 工程 COPY 进镜像并切换入口。
+#
+# 构建: docker build --network=host -f Dockerfile.aarch64 -t hsmr-infer:20260901 .
+# 运行: docker run -d --name hsmr-infer --restart unless-stopped --runtime=nvidia \
+#         --network=host -w /app/hsmr-infer hsmr-infer:20260901
+#        (端口 8010 由 config.yaml 的 server.port 控制)
+
+FROM guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent/hsmr-render:20260831
+
+# 拷贝 HSMR-infer 工程(与 __init__.py 的 sys.path 注入约定一致: 工程根即 hsmr_infer 父目录)
+COPY . /app/hsmr-infer
+
+WORKDIR /app/hsmr-infer
+
+# 入口: 读 config.yaml(server.port=8010), hsmr_infer 包自注入工程根到 sys.path
+CMD ["python", "-m", "hsmr_infer.server"]

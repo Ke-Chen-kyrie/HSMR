@@ -1,0 +1,48 @@
+# @package _global_
+defaults:
+  - /pipeline: hsmr
+  - /data: skel-hsmr_v1_full
+  # Configurations in this file
+  - _self_
+  # Import callbacks.
+  - /callback/ckpt/top1-p1k@callbacks.ckpt
+  - /callback/skelify-spin/i230kb1@callbacks.SKELifySPIN
+  # - /callback/skelify-spin/read_only@callbacks.SKELifySPIN
+
+# ======= Overwrite Section =======
+# (Do not use as much as possible!)
+
+pipeline:
+  cfg:
+    backbone: ${_hub_.models.backbones.vit_h}
+    backbone_ckpt: '${_pm_.inputs}/backbone/vitpose_backbone.pth'
+    freeze_backbone: False
+
+data:
+  cfg:
+    train:
+      dataloader:
+        batch_size: 78
+    mocap: NULL
+
+
+# ====== Main Section ======
+
+exp_topic: 'HSMR-train-vit_h'
+
+enable_time_monitor: False
+
+seed: NULL
+ckpt_path: NULL
+
+logger:
+  interval: 1000
+  interval_skelify: 10
+  samples_per_record: 5
+
+task: 'fit'
+pl_trainer:
+  devices: 8
+  max_epochs: 100
+  deterministic: false
+  precision: 16

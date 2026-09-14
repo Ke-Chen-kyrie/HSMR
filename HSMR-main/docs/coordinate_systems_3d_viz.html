@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HSMR 完整流程 — 分步 3D 可视化</title>
+<style>
+  :root{--bg:#0d1117;--txt:#c9d1d9;--accent:#4dabf7}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);height:100vh;overflow:hidden}
+  #c3d{position:absolute;inset:0;cursor:grab}#c3d:active{cursor:grabbing}
+  #steps{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:4px;z-index:10;background:#161b22dd;padding:6px 10px;border-radius:10px;border:1px solid #21262d}
+  .step-btn{padding:5px 10px;border-radius:6px;background:#21262d;border:1px solid #30363d;color:var(--txt);cursor:pointer;font-size:11px;text-align:center;min-width:60px}
+  .step-btn:hover{background:#2a3a4a}
+  .step-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:bold}
+  /* 说明卡 (左下, HTML 渲染, 不占3D空间) */
+  #desc{position:absolute;left:14px;bottom:14px;z-index:10;background:#161b22f0;padding:12px 14px;border-radius:10px;border:1px solid #21262d;width:330px;font-size:11px;line-height:1.6;backdrop-filter:blur(4px)}
+  #desc .t{font-weight:bold;color:#ffd166;font-size:13px;margin-bottom:6px}
+  #desc .b{color:#c9d1d9}
+  #desc .f{color:#8b949e;font-size:10px;margin-top:5px}
+  #desc code{background:#1c2128;padding:1px 4px;border-radius:3px;color:#d2a8ff;font-size:10px}
+  #desc .info{font-family:monospace;font-size:10px;color:#8b949e;background:#0d1117;padding:6px 8px;border-radius:6px;margin-top:6px;line-height:1.5}
+  #desc .info b{color:#ffd166}
+  #hint{position:absolute;right:14px;bottom:14px;z-index:10;font-size:10px;color:#666}
+  /* 3D 标签极小化 */
+  .l3d{position:absolute;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="c3d"></div>
+
+<div id="steps">
+  <div class="step-btn active" onclick="go(1)">① 虚拟相机</div>
+  <div class="step-btn" onclick="go(2)">② 深度</div>
+  <div class="step-btn" onclick="go(3)">③ 反投影</div>
+  <div class="step-btn" onclick="go(4)">④ TF</div>
+  <div class="step-btn" onclick="go(5)">⑤ BASE</div>
+</div>
+
+<div id="desc"></div>
+<div id="hint">🖱 旋转/缩放/平移</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+const P0_OPTICAL = [
+[0.894,-0.522,2.603],[0.388,-0.267,1.657],[0.330,-0.149,1.603],[0.461,0.046,1.513],[0.693,0.073,1.546],[0.408,-0.281,1.649],[0.513,-0.248,1.915],[0.573,-0.140,1.831],[0.278,0.068,1.703],[0.253,0.160,1.728],[0.505,0.284,1.613],[0.491,0.610,1.871],[0.325,0.108,1.743],[0.527,0.144,1.438],[0.546,0.451,1.717],[0.535,-0.357,1.598],[0.518,-0.362,1.584],[0.453,-0.352,1.567],[0.429,-0.370,1.574],[0.450,0.364,1.124],[null,null,null],[0.511,0.469,1.734],[0.594,0.636,1.678],[null,null,null],[0.462,0.644,1.894],[0.472,0.580,1.888],[0.470,0.266,1.626],[0.169,0.096,1.757],[0.300,0.000,1.631],[0.548,0.132,1.524],[0.541,0.422,1.731],[0.677,0.046,1.535],[0.472,0.016,1.544],[0.343,-0.171,1.591],[0.401,-0.298,1.646],[0.554,-0.289,1.962],[0.583,-0.164,1.888],[0.394,-0.267,1.659],[0.458,-0.394,1.544],[0.243,0.047,1.734],[0.369,-0.233,1.646],[0.272,-0.132,1.603],[0.489,-0.318,1.634],[0.456,-0.411,1.544]
+];
+const P0_BASE = [
+[0.983,2.617,0.488],[0.432,1.686,0.699],[0.370,1.587,0.619],[0.493,1.410,0.488],[0.726,1.416,0.451],[0.451,1.684,0.715],[0.567,1.900,0.563],[0.622,1.772,0.506],[0.318,1.577,0.380],[0.293,1.557,0.287],[0.537,1.386,0.232],[0.529,1.464,-0.177],[0.366,1.591,0.326],[0.554,1.295,0.437],[0.580,1.399,0.036],[0.578,1.669,0.807],[0.560,1.659,0.817],[0.494,1.643,0.816],[0.471,1.659,0.829],[0.460,0.919,0.388],[null,null,null],[0.546,1.407,0.012],[0.623,1.276,-0.109],[null,null,null],[0.500,1.470,-0.217],[0.511,1.494,-0.158],[0.503,1.408,0.241],[0.211,1.617,0.330],[0.338,1.543,0.474],[0.579,1.376,0.407],[0.576,1.425,0.055],[0.710,1.419,0.479],[0.506,1.451,0.501],[0.382,1.585,0.644],[0.445,1.690,0.731],[0.611,1.958,0.577],[0.635,1.833,0.501],[0.438,1.688,0.698],[0.499,1.642,0.864],[0.285,1.615,0.384],[0.412,1.661,0.673],[0.311,1.581,0.604],[0.532,1.685,0.755],[0.497,1.650,0.879]
+];
+const ORI = { forward:[-0.792,0.367,0.487], quaternion:[0.110,-0.483,0.153,0.855] };
+const CAM_BASE = [0.068, 0.140, -1.128];
+const PELVIS_BASE = [0.318,1.577,0.380];
+const BONES25 = [[1,8],[1,2],[1,5],[2,3],[3,4],[5,6],[6,7],[8,9],[9,10],[10,11],[8,12],[12,13],[13,14],[1,0],[0,15],[15,17],[0,16],[16,18],[14,21],[19,21],[20,21],[11,24],[22,24],[23,24]];
+
+const C = document.getElementById('c3d');
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#0d1117');
+const cam = new THREE.PerspectiveCamera(45, C.clientWidth/C.clientHeight, 0.05, 50);
+cam.position.set(3, 1.5, 4); cam.lookAt(0, 0.8, 0);
+const rnd = new THREE.WebGLRenderer({antialias:true});
+rnd.setSize(C.clientWidth, C.clientHeight); rnd.setPixelRatio(Math.min(window.devicePixelRatio,2));
+C.appendChild(rnd.domElement);
+const lr = new CSS2DRenderer();
+lr.setSize(C.clientWidth, C.clientHeight);
+lr.domElement.style.position='absolute';lr.domElement.style.top='0';lr.domElement.style.pointerEvents='none';
+C.appendChild(lr.domElement);
+const ctrl = new OrbitControls(cam, rnd.domElement);
+ctrl.target.set(0, 0.8, 0); ctrl.enableDamping=true; ctrl.update();
+scene.add(new THREE.AmbientLight('#ffffff', 0.7));
+const sun = new THREE.DirectionalLight('#ffffff', 1.2); sun.position.set(5,8,4); scene.add(sun);
+
+// 3D 标签: 极小, 半透明背景
+function lbl(t,p,c='#ddd'){
+  const d=document.createElement('div');
+  d.textContent=t; d.style.color=c; d.style.fontSize='8px';
+  d.style.fontFamily='system-ui'; d.style.background='rgba(0,0,0,0.5)';
+  d.style.padding='1px 3px'; d.style.borderRadius='3px'; d.style.whiteSpace='nowrap';
+  const l=new CSS2DObject(d); l.position.set(...p); return l;
+}
+function axes(sz,o){
+  const g=new THREE.Group();
+  g.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0),new THREE.Vector3(...o),sz,'#ff5555',0.06,0.04));
+  g.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0),new THREE.Vector3(...o),sz,'#55ff55',0.06,0.04));
+  g.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,1),new THREE.Vector3(...o),sz,'#5599ff',0.06,0.04));
+  return g;
+}
+function sph(p,r,c,em=0){
+  const s=new THREE.Mesh(new THREE.SphereGeometry(r,8,8),new THREE.MeshStandardMaterial({color:c,roughness:0.3,emissive:c,emissiveIntensity:em}));
+  s.position.set(...p); return s;
+}
+function ln(a,b,c,dash){const g=new THREE.BufferGeometry().setFromPoints([a,b]);return new THREE.Line(g, dash?new THREE.LineDashedMaterial({color:c,dashSize:0.1,gapSize:0.08}):new THREE.LineBasicMaterial({color:c}));}
+function makeSkeleton(J,color,fwd){
+  const g=new THREE.Group();
+  const P=J.map(j=>(j&&j[0]!=null&&isFinite(j[0]))?new THREE.Vector3(j[0],j[1],j[2]):null);
+  BONES25.forEach(([a,b])=>{if(!P[a]||!P[b])return;g.add(ln(P[a],P[b],color));});
+  J.forEach((j,i)=>{if(!P[i])return;g.add(sph([j[0],j[1],j[2]],0.03,color));});
+  if(P[8]&&fwd){const fv=new THREE.Vector3(...fwd).normalize();g.add(new THREE.ArrowHelper(fv,P[8],0.5,'#ffd166',0.1,0.06));}
+  return g;
+}
+function makeCamera(pos){
+  const g=new THREE.Group();
+  const b=new THREE.Mesh(new THREE.BoxGeometry(0.14,0.09,0.16),new THREE.MeshStandardMaterial({color:'#a371f7',emissive:'#1a0033'}));
+  b.position.copy(pos); g.add(b); return g;
+}
+
+const GS = {1:new THREE.Group(),2:new THREE.Group(),3:new THREE.Group(),4:new THREE.Group(),5:new THREE.Group()};
+Object.values(GS).forEach(g=>scene.add(g));
+
+// 步骤1: 相机 + 人体 + 射线
+{const g=GS[1];
+ g.add(makeCamera(new THREE.Vector3(0,0,0))); g.add(axes(0.5,[0,0,0]));
+ g.add(lbl('相机',[0,-0.15,0],'#b392f0'));
+ g.add(makeSkeleton(P0_OPTICAL,'#f78166',ORI.forward));
+ [0,8,13].forEach(ki=>{const p=P0_OPTICAL[ki];if(!p)return;
+   const r=ln(new THREE.Vector3(0,0,0),new THREE.Vector3(p[0],p[1],p[2]),'#ffd166',true);r.computeLineDistances();g.add(r);});
+}
+// 步骤2: 相机 + 深度图 + 采样点
+{const g=GS[2];
+ g.add(makeCamera(new THREE.Vector3(0,0,0))); g.add(axes(0.4,[0,0,0]));
+ const pl=new THREE.Mesh(new THREE.PlaneGeometry(1.4,0.8),new THREE.MeshBasicMaterial({color:'#58a6ff',transparent:true,opacity:0.3,side:THREE.DoubleSide}));
+ pl.position.set(0,0,0.85); g.add(pl);
+ g.add(lbl('深度图',[0,0.55,0.85],'#79b8ff'));
+ [8,13].forEach(ki=>{const p=P0_OPTICAL[ki];if(!p)return;
+   const t=0.85/p[2];const ip=new THREE.Vector3(p[0]*t,p[1]*t,0.85);
+   g.add(sph(ip.toArray(),0.02,'#ffd166',0.5));
+   const r=ln(new THREE.Vector3(0,0,0),ip,'#ffd166',true);r.computeLineDistances();g.add(r);});
+}
+// 步骤3: 相机 + 3D人体
+{const g=GS[3];
+ g.add(makeCamera(new THREE.Vector3(0,0,0))); g.add(axes(0.4,[0,0,0]));
+ g.add(makeSkeleton(P0_OPTICAL,'#58a6ff',ORI.forward));
+}
+// 步骤4: 机器人 + 相机 + TF链 (沿实际树: BASE→ANKLE→KNEE→WAIST_YAW→WAIST_PITCH→NECK→HEAD→optical)
+{const g=GS[4];
+ const ch=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.2,0.7),new THREE.MeshStandardMaterial({color:'#666',roughness:0.5}));ch.position.set(0,0.1,0);g.add(ch);
+ const to=new THREE.Mesh(new THREE.BoxGeometry(0.3,1.0,0.3),new THREE.MeshStandardMaterial({color:'#888',roughness:0.5}));to.position.set(0,0.7,0);g.add(to);
+ g.add(axes(0.6,[0,0,0]));
+ g.add(lbl('BASE',[0,1.3,0],'#aaa'));
+ const cp=new THREE.Vector3(...CAM_BASE); g.add(makeCamera(cp));
+ g.add(lbl('相机',[cp.x,cp.y-0.15,cp.z],'#b392f0'));
+ // 链上帧点 (BASE→...→optical 直线示意)
+ const tfnames=['ANKLE','KNEE','WAIST_YAW','WAIST_PITCH','NECK','HEAD'];
+ const seg=new THREE.Vector3(0,0,0).sub(cp);
+ tfnames.forEach((n,i)=>{
+   const f=(i+1)/(tfnames.length+1);
+   const pos=cp.clone().add(seg.clone().multiplyScalar(f));
+   g.add(sph(pos.toArray(),0.015,'#4dabf7'));
+ });
+ const chain=ln(cp,new THREE.Vector3(0,0,0),'#4dabf7',true);chain.computeLineDistances();g.add(chain);
+ // fp_object (optical 的 child)
+ const fpo=cp.clone().add(new THREE.Vector3(0.1,0.05,0.1));
+ g.add(sph(fpo.toArray(),0.015,'#888'));
+ g.add(lbl('fp_object',[fpo.x,fpo.y-0.1,fpo.z],'#888'));
+}
+// 步骤5: 机器人 + 人
+{const g=GS[5];
+ const ch=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.2,0.7),new THREE.MeshStandardMaterial({color:'#666',roughness:0.5}));ch.position.set(0,0.1,0);g.add(ch);
+ const to=new THREE.Mesh(new THREE.BoxGeometry(0.3,1.0,0.3),new THREE.MeshStandardMaterial({color:'#888',roughness:0.5}));to.position.set(0,0.7,0);g.add(to);
+ g.add(axes(0.6,[0,0,0]));
+ g.add(makeSkeleton(P0_BASE,'#3fb950',ORI.forward));
+ g.add(lbl(`骨盆 [${PELVIS_BASE.map(x=>x.toFixed(2)).join(',')}]m`,[PELVIS_BASE[0],PELVIS_BASE[1]+0.2,PELVIS_BASE[2]],'#3fb950'));
+}
+
+const DESCS={
+1:{t:'① HSMR 虚拟相机 → 2D 像素',b:'网络输出 <code>scale/tx/ty</code>，用 <code>f=5000</code> 投影 44 关节到 2D（橙色人体 + 金色射线）。<span class="f">虚拟相机只投影对齐，tz 是假米。</span>',
+  info:'u=5000·X/Z+cx<br>tz=2×5000/(256·scale)'},
+2:{t:'② 深度采样',b:'在 2D 关节像素处，从 <code>aligned_depth</code>（蓝色深度图）采样真实 Z（毫米→米）。',
+  info:'uint16 毫米 → /1000<br>小窗口中位数'},
+3:{t:'③ 反投影 → 光学系 3D',b:'用 <b>真实 K</b> 反投影 2D+深度 → 真实光学系 3D（蓝色人体，米）。',
+  info:'X=(u-cx)Z/fx<br>Y=(v-cy)Z/fy<br>K: fx=910.68, fy=910.28'},
+4:{t:'④ TF 链 → BASE',b:'沿运动学树 <code>BASE→ANKLE→KNEE→WAIST_YAW→WAIST_PITCH→NECK→HEAD→optical</code> 链乘，把光学坐标转到机器人基座。<span class="f">实际树还含手臂链与 <code>optical→fp_object</code>。</span>',
+  info:'p_base = T_base_optical · p_optical<br>相机在BASE系 [0.07,0.14,-1.13]m<br>链: BASE→ANKLE→KNEE→WAIST_YAW→<br>     WAIST_PITCH→NECK→HEAD→optical'},
+5:{t:'⑤ 输出 BASE 坐标 + 完整朝向',b:'最终：44 关节 <b>BASE 坐标</b> + <b>旋转矩阵</b> + <b>四元数</b>（无 yaw）。',
+  info:`骨盆BASE [${PELVIS_BASE.map(x=>x.toFixed(2)).join(',')}]m<br>四元数 [${ORI.quaternion.map(x=>x.toFixed(3)).join(',')}]<br>深度有效 42/44`}
+};
+function renderDesc(){const d=DESCS[cur];document.getElementById('desc').innerHTML=`<div class="t">${d.t}</div><div class="b">${d.b}</div><div class="info">${d.info}</div>`;}
+let cur=1;
+function go(n){cur=n;Object.keys(GS).forEach(k=>GS[k].visible=(+k===n));
+  document.querySelectorAll('.step-btn').forEach((el,i)=>el.classList.toggle('active',i===n-1));renderDesc();}
+window.go=go; go(1);
+
+function anim(){requestAnimationFrame(anim);ctrl.update();rnd.render(scene,cam);lr.render(scene,cam);}
+window.addEventListener('resize',()=>{cam.aspect=C.clientWidth/C.clientHeight;cam.updateProjectionMatrix();rnd.setSize(C.clientWidth,C.clientHeight);lr.setSize(C.clientWidth,C.clientHeight);});
+anim();
+</script>
+</body>
+</html>

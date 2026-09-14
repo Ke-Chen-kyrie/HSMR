@@ -1,0 +1,15 @@
+# Docker 构建上下文排除 (joint_service 用)
+# 注意: .venv_orin 必须保留 (Dockerfile 显式 COPY 它)
+
+data_inputs/
+deploy/onnx/artifacts/
+deploy/orin/artifacts/
+docs/
+exp/
+data_outputs/
+skel_models_v1.1.zip
+
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.git/

@@ -1,0 +1,37 @@
+_target_: lib.modeling.optim.SKELify
+
+name: SKELify-Refiner
+
+cfg:
+  skel_model: ${_hub_.models.body_models.skel_mix_hsmr}
+
+  phases:
+    STAGE-refine:
+      max_loop: 10
+      params_keys: ['cam_t', 'poses_orient', 'poses_body', 'betas']
+      optimizer: ${...optimizer}
+      losses:
+        f_normalize_kp2d: True
+        f_normalize_kp2d_to_mean: False
+        w_reprojection: 1.0
+        w_shape_prior: 5.0
+        w_angle_prior: 4.78
+        w_angle_prior_scale: 0.17
+      parts: ['all']
+    # ================================
+
+  optimizer:
+    _target_: torch.optim.LBFGS
+    lr: 1
+    line_search_fn: 'strong_wolfe'
+    tolerance_grad: ${..early_quit_thresholds.abs}
+    tolerance_change: ${..early_quit_thresholds.rel}
+
+  early_quit_thresholds:
+    abs: 1e-7
+    rel: 1e-9
+
+  img_patch_size: ${policy.img_patch_size}
+  focal_length: ${policy.focal_length}
+
+  logger: ${logger}

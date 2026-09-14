@@ -1,0 +1,71 @@
+_target_: lib.data.modules.hmr2_fashion.skel_wds.DataModule
+
+name: HMR2_fashion_WDS
+
+cfg:
+
+  train:
+    shared_ds_opt:  # TODO: modify this
+      SUPPRESS_KP_CONF_THRESH: 0.3
+      FILTER_NUM_KP: 4
+      FILTER_NUM_KP_THRESH: 0.0
+      FILTER_REPROJ_THRESH: 31000
+      SUPPRESS_BETAS_THRESH: 3.0
+      SUPPRESS_BAD_POSES: False
+      POSES_BETAS_SIMULTANEOUS: True
+      FILTER_NO_POSES: False
+      BETAS_REG: True
+
+    datasets:
+      - name: 'H36M'
+        item: ${_hub_.datasets.train.hsmr.h36m}
+        weight: 0.3
+      - name: 'MPII'
+        item: ${_hub_.datasets.train.hsmr.mpii}
+        weight: 0.1
+      - name: 'COCO14'
+        item: ${_hub_.datasets.train.hsmr.coco14}
+        weight: 0.4
+      - name: 'MPI-INF-3DHP'
+        item: ${_hub_.datasets.train.hsmr.mpi_inf_3dhp}
+        weight: 0.2
+
+    dataloader:
+      drop_last: True
+      batch_size: 300
+      num_workers: 6
+      prefetch_factor: 2
+
+  eval:
+    datasets:
+      - name: 'LSP-EXTENDED'
+        item: ${_hub_.datasets.eval.lsp_extended}
+      - name: 'H36M-VAL-P2'
+        item: ${_hub_.datasets.eval.h36m_val_p2}
+      - name: '3DPW-TEST'
+        item: ${_hub_.datasets.eval.3dpw_test}
+      - name: 'POSETRACK-VAL'
+        item: ${_hub_.datasets.eval.posetrack_val}
+      - name: 'COCO-VAL'
+        item: ${_hub_.datasets.eval.coco_val}
+
+
+    dataloader:
+      shuffle: False
+      batch_size: 300
+      num_workers: 6
+
+  policy: ${policy}
+
+  # TODO: modify this
+  augm:
+    SCALE_FACTOR: 0.3
+    ROT_FACTOR: 30
+    TRANS_FACTOR: 0.02
+    COLOR_SCALE: 0.2
+    ROT_AUG_RATE: 0.6
+    TRANS_AUG_RATE: 0.5
+    DO_FLIP: True
+    FLIP_AUG_RATE: 0.5
+    EXTREME_CROP_AUG_RATE: 0.10
+    EXTREME_CROP_AUG_LEVEL: 1

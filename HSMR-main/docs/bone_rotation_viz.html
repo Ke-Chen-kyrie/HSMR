@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SKEL 骨骼旋转 — 局部R + 全局joints_ori (验证数据)</title>
+<style>
+  :root{--bg:#0d1117;--pnl:#161b22;--txt:#c9d1d9}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);height:100vh;display:flex;overflow:hidden}
+  #c3d{flex:1;position:relative;cursor:grab}#c3d:active{cursor:grabbing}
+  #pn{width:400px;background:var(--pnl);padding:14px;overflow-y:auto;border-left:1px solid #30363d;font-size:11.5px;line-height:1.5;display:flex;flex-direction:column;gap:8px}
+  h2{font-size:15px;color:#e6edf3;border-bottom:1px solid #30363d;padding-bottom:5px}
+  .card{background:#0d1117;border-radius:5px;padding:8px 10px;border:1px solid #21262d}
+  .tt{font-weight:700;font-size:12px;color:#ffd166;margin-bottom:4px}
+  .btn{flex:1;padding:6px;border:1px solid #30363d;border-radius:4px;background:#21262d;color:var(--txt);cursor:pointer;font-size:11px;text-align:center}
+  .btn.active{background:#f78166;color:#fff;border-color:#f78166;font-weight:bold}
+  select{width:100%;padding:5px;background:#21262d;color:var(--txt);border:1px solid #30363d;border-radius:4px;font-size:11px}
+  .mat{font-family:monospace;font-size:10px;color:#4dabf7;background:#0d1117;padding:6px;border-radius:4px;line-height:1.5}
+  .stat{font-family:monospace;font-size:10px;color:#ffd166}
+  .ref{font-size:9px;color:#8b949e}
+  .ref-y{font-size:9px;color:#d2991d}
+  .legend{display:flex;gap:12px;font-size:10px;margin:4px 0}
+  .legend span{display:flex;align-items:center;gap:4px}
+  .ht{font-size:10px;color:#8b949e;text-align:center;margin-top:auto;padding-top:6px;border-top:1px solid #21262d}
+  code{background:#1c2128;padding:1px 3px;border-radius:2px;font-size:10px;color:#d2a8ff}
+</style>
+</head>
+<body>
+<div id="c3d"></div>
+<div id="pn">
+  <h2>🦴 SKEL 骨骼旋转 — 局部 R vs 全局 joints_ori</h2>
+  <p style="font-size:10px;color:#8b949e">
+    数据来自 SKEL 模型实际运行 (params_q2rot + forward), 非推测
+  </p>
+
+  <div style="display:flex;gap:6px">
+    <div class="btn" id="btnRest" onclick="setPose('rest')">🧍 静止</div>
+    <div class="btn active" id="btnAction" onclick="setPose('action')">🏃 屈右膝+抬左臂</div>
+  </div>
+
+  <div class="card">
+    <div class="tt">🔍 选择骨骼</div>
+    <select id="jointSel" onchange="showJoint()"></select>
+    <div id="jointInfo" class="mat" style="margin-top:6px">选择一块骨骼...</div>
+  </div>
+
+  <div class="card">
+    <div class="tt">📍 参照系（关键！）</div>
+    <p class="ref">
+      <b>joints_ori（全局）参照 = SKEL 模型空间</b><br>
+      · trans=0, 原点(0,0,0)=模板网格质心<br>
+      · 骨盆是运动学树根, G[0]=[R[0]|J[0]]<br>
+      · 骨盆位置 = [0.009, −0.228, 0.104] (验证)<br><br>
+      <span class="ref-y">
+        ⚠️ <b>不是相机系</b>（未加 camera_translation）<br>
+        ⚠️ <b>不是 base_link</b>（未加 TF）
+      </span>
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="tt">📐 代码来源</div>
+    <p class="ref">
+      局部 <code>R</code> = <code>params_q2rot(poses)</code> (transforms.py:200)<br>
+      &nbsp;&nbsp;每块骨骼相对父骨骼的旋转, 由 46 参数经 q_to_rot<br><br>
+      全局 <code>joints_ori</code> = <code>(G@Gk01)[:,:,:3,:3]</code> (skel_model.py:545)<br>
+      &nbsp;&nbsp;<code>G[child]=G[parent]@G_[child]</code> 链乘 (:435-438)<br>
+      &nbsp;&nbsp;<code>G_=[R|t]</code> 局部变换 (:430-432)<br><br>
+      <span class="ref-y">
+        ⚠️ joints_ori 含骨骼 rest 朝向(Rk01), 静止时 ≠ 单位矩阵<br>
+        ⚠️ 验证: 静止 joints_ori[0] = per_joint_rot[0]
+      </span>
+    </p>
+  </div>
+
+  <div class="legend">
+    <span><span style="color:#f78166">●</span> 右/身体侧骨骼</span>
+    <span><span style="color:#58a6ff">●</span> 左/轴向骨骼</span>
+    <span><span style="color:#888">━</span> 骨架</span>
+    <span>箭头 = joints_ori 三轴(全局)</span>
+  </div>
+
+  <div class="ht">🖱️ 左键旋转 &#8226; 滚轮缩放 &#8226; 右键平移 &#8226; 红=本地X 绿=本地Y 蓝=本地Z</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script src="_bone_data.js"></script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ═══════════════════════════════════════════════
+// 验证数据 (来自 _bone_data.js = SKEL 模型运行结果)
+// ═══════════════════════════════════════════════
+const D = window.BONE_DATA;
+const BONE_NAMES = D.bone_names;
+const PARENT = D.parent;          // -1=根(骨盆)
+const RIGHT = [1,2,3,4,5,14,15,16,17,18];
+const BONES = [[0,11],[11,12],[12,13],[0,1],[1,2],[2,3],[3,4],[4,5],[0,6],[6,7],[7,8],[8,9],[9,10],[12,14],[14,15],[15,16],[16,17],[17,18],[12,19],[19,20],[20,21],[21,22],[22,23]];
+
+// DOF/axis 元数据 (来自 JOINTS_DEF, 见 BONE_ROTATION.md 表)
+const BONE_DEF = [
+  {dof:3, axis:'Z,X,Y', flip:'+,+,+'},
+  {dof:3, axis:'Z,X,Y', flip:'+,+,+'},
+  {dof:1, axis:'WalkerKnee(绕全局Z,-q)', flip:'-'},
+  {dof:1, axis:'PinJoint(特殊)', flip:'-'},
+  {dof:1, axis:'PinJoint(特殊)', flip:'-'},
+  {dof:1, axis:'PinJoint(特殊)', flip:'-'},
+  {dof:3, axis:'Z,X,Y', flip:'+,-,-'},
+  {dof:1, axis:'WalkerKnee(绕全局Z,-q)', flip:'-'},
+  {dof:1, axis:'PinJoint(特殊)', flip:'-'},
+  {dof:1, axis:'PinJoint(特殊)', flip:'-'},
+  {dof:1, axis:'PinJoint(特殊)', flip:'-'},
+  {dof:3, axis:'X,Z,Y', flip:'+,+,+'},
+  {dof:3, axis:'X,Z,Y', flip:'+,+,+'},
+  {dof:3, axis:'X,Z,Y', flip:'+,+,+'},
+  {dof:3, axis:'Y,Z,X', flip:'+,-,-'},
+  {dof:3, axis:'X,Y,Z', flip:'+,+,+'},
+  {dof:1, axis:'[0.05,0.04,1.0]', flip:'+'},
+  {dof:1, axis:'[-0.02,0.99,-0.12]', flip:'+'},
+  {dof:2, axis:'X,Z', flip:'+,-'},
+  {dof:3, axis:'Y,Z,X', flip:'+,+,+'},
+  {dof:3, axis:'X,Y,Z', flip:'+,+,+'},
+  {dof:1, axis:'[-0.05,-0.04,1.0]', flip:'+'},
+  {dof:1, axis:'[0.02,-0.99,-0.12]', flip:'+'},
+  {dof:2, axis:'X,Z', flip:'-,-'}
+];
+
+// ═══════════════════════════════════════════════
+// 场景
+// ═══════════════════════════════════════════════
+const C = document.getElementById('c3d');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0d1117');
+const cam = new THREE.PerspectiveCamera(42, C.clientWidth/C.clientHeight, 0.05, 30);
+cam.position.set(2, 1.2, 4); cam.lookAt(0, -0.35, 0);
+const rnd = new THREE.WebGLRenderer({antialias:true});
+rnd.setSize(C.clientWidth, C.clientHeight);
+rnd.setPixelRatio(Math.min(window.devicePixelRatio,2));
+C.appendChild(rnd.domElement);
+const lr = new CSS2DRenderer();
+lr.setSize(C.clientWidth, C.clientHeight);
+lr.domElement.style.position='absolute';lr.domElement.style.top='0';lr.domElement.style.pointerEvents='none';
+C.appendChild(lr.domElement);
+const ctrl = new OrbitControls(cam, rnd.domElement);
+ctrl.target.set(0, -0.35, 0); ctrl.enableDamping=true; ctrl.update();
+scene.add(new THREE.AmbientLight('#ffffff', 0.6));
+scene.add(new THREE.GridHelper(10, 10, '#21262d', '#161b22'));
+
+let pose = 'action';
+const ROOT = new THREE.Group(); scene.add(ROOT);
+
+function localAxesGroup(origin, G) {
+  // 用验证过的 joints_ori 画本地轴 (红=列0 X, 绿=列1 Y, 蓝=列2 Z)
+  const g = new THREE.Group();
+  const o = new THREE.Vector3(...origin);
+  for (let i=0; i<3; i++) {
+    const dir = new THREE.Vector3(G[0][i], G[1][i], G[2][i]);
+    const col = ['#ff5555','#55ff55','#5599ff'][i];
+    g.add(new THREE.ArrowHelper(dir, o, 0.16, col, 0.06, 0.04));
+  }
+  return g;
+}
+
+function rebuild() {
+  while (ROOT.children.length) ROOT.remove(ROOT.children[0]);
+  const data = D[pose];
+  const J = data.joints;
+  const G = data.joints_ori;   // 全局骨骼朝向 (Python验证)
+
+  BONES.forEach(([a,b]) => {
+    const pts = [new THREE.Vector3(...J[a]), new THREE.Vector3(...J[b])];
+    ROOT.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({color:'#888'})));
+  });
+  J.forEach((jp, jid) => {
+    const col = RIGHT.includes(jid) ? '#f78166' : '#58a6ff';
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 10),
+      new THREE.MeshStandardMaterial({color:col, roughness:0.3}));
+    s.position.set(...jp); ROOT.add(s);
+    ROOT.add(localAxesGroup(jp, G[jid]));
+  });
+}
+
+function matToString(M) {
+  return M.map(r => '[' + r.map(x=>x.toFixed(3).padStart(6)).join('  ') + ']').join('<br>');
+}
+
+function showJoint() {
+  const jid = parseInt(document.getElementById('jointSel').value);
+  const d = D[pose];
+  const R = d.local_R[jid];       // 局部 (params_q2rot)
+  const G = d.joints_ori[jid];    // 全局 (SKEL forward)
+  const def = BONE_DEF[jid];
+  const parentName = PARENT[jid] === -1 ? '无(根)' : BONE_NAMES[PARENT[jid]];
+  const el = document.getElementById('jointInfo');
+  el.innerHTML = `<b style="color:#ffd166">${BONE_NAMES[jid]}</b> (jid=${jid}) &nbsp; 父=${parentName}<br>` +
+    `DOF=${def.dof} &nbsp; axis=${def.axis} &nbsp; flip=${def.flip}<br><br>` +
+    `<b>🔸 局部 R</b> (相对父骨骼 ${parentName})<br>${matToString(R)}<br>` +
+    `<span class="ref">来源: params_q2rot(poses) = 46参数经 q_to_rot<br>` +
+    `静止=R=I → 沿父方向伸直</span><br><br>` +
+    `<b>🔹 全局 joints_ori</b> (模型空间, 含骨骼rest朝向)<br>${matToString(G)}<br>` +
+    `<span class="ref">来源: (G@Gk01)[:,:,:3,:3] = FK链乘×骨骼rest对齐<br>` +
+    `参照: SKEL模型空间(trans=0) — 非相机/非base_link<br>` +
+    (PARENT[jid] === -1
+      ? `根: 静止时 = per_joint_rot[0] (骨骼rest朝向, ≠I)`
+      : `含所有祖先旋转累积 + 该骨骼rest朝向`) + `</span>`;
+}
+
+// 填充选择框
+(function(){
+  const sel = document.getElementById('jointSel');
+  BONE_NAMES.forEach((n, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${i}: ${n} (DOF=${BONE_DEF[i].dof})`;
+    sel.appendChild(o);
+  });
+  sel.value = 15; // 默认右肱骨
+})();
+
+window.setPose = function(p){
+  pose = p;
+  document.getElementById('btnRest').classList.toggle('active', p==='rest');
+  document.getElementById('btnAction').classList.toggle('active', p==='action');
+  rebuild();
+  showJoint();
+};
+
+rebuild(); showJoint();
+
+function anim(){ requestAnimationFrame(anim); ctrl.update(); rnd.render(scene,cam); lr.render(scene,cam); }
+window.addEventListener('resize', ()=>{
+  cam.aspect = C.clientWidth/C.clientHeight; cam.updateProjectionMatrix();
+  rnd.setSize(C.clientWidth, C.clientHeight); lr.setSize(C.clientWidth, C.clientHeight);
+});
+anim();
+</script>
+</body>
+</html>

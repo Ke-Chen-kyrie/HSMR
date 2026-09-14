@@ -1,0 +1,10 @@
+# HSMR-sdk 依赖 (纯外围吃数据; 不含 torch/detectron2/推理).
+numpy
+opencv-python-headless
+websockets              # Foxglove WS 采集
+rosbags                 # ROS2 CDR 消息反序列化 (采集)
+requests                # 声纹+人脸容器 127.0.0.1:8001
+PyYAML
+
+# 可选: ROS 发布 (zenoh → Foxglove)。缺包时 ros_publish 自动禁用, 其余功能不受影响。
+# zenoh-ros2-sdk

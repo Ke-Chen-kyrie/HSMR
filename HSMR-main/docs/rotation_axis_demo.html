@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>旋转轴演示 — 一根棍子绕不同轴转</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0d1117;color:#c9d1d9;margin:0;height:100vh;overflow:hidden}
+  #c{position:absolute;inset:0}
+  #panel{position:absolute;top:10px;left:50%;transform:translateX(-50%);display:flex;gap:8px;background:#161b22dd;padding:8px 14px;border-radius:10px;z-index:10}
+  button{padding:8px 14px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;border-radius:6px;cursor:pointer;font-size:13px}
+  button:hover{background:#2a3a4a}
+  #info{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:#161b22dd;padding:8px 14px;border-radius:8px;font-size:12px;z-index:10;color:#8b949e}
+</style>
+</head>
+<body>
+<div id="c"></div>
+<div id="panel">
+  <button onclick="rot('x',45)">绕X转45°<br><small>(左右轴)</small></button>
+  <button onclick="rot('y',45)">绕Y转45°<br><small>(上下轴)</small></button>
+  <button onclick="rot('z',45)">绕Z转45°<br><small>(前后轴)</small></button>
+  <button onclick="reset()">重置</button>
+</div>
+<div id="info">🧠 红=X轴(左右) 绿=Y轴(上下) 蓝=Z轴(前后) | 拖拽旋转视角</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const C=document.getElementById('c');
+const scene=new THREE.Scene(); scene.background=new THREE.Color('#0d1117');
+const cam=new THREE.PerspectiveCamera(50,C.clientWidth/C.clientHeight,0.1,20);
+cam.position.set(3,2,4);
+const rnd=new THREE.WebGLRenderer({antialias:true});
+rnd.setSize(C.clientWidth,C.clientHeight); C.appendChild(rnd.domElement);
+const ctrl=new OrbitControls(cam,rnd.domElement); ctrl.target.set(0,0,0); ctrl.update();
+scene.add(new THREE.AmbientLight('#fff',0.8));
+scene.add(new THREE.GridHelper(6,6,'#21262d','#161b22'));
+
+// 三根轴
+const axlen=1.6;
+function axisArrow(dir,color,label){
+  const a=new THREE.ArrowHelper(new THREE.Vector3(...dir),new THREE.Vector3(0,0,0),axlen,color,0.08,0.05);
+  scene.add(a);
+}
+axisArrow([1,0,0],'#ff5555'); axisArrow([0,1,0],'#55ff55'); axisArrow([0,0,1],'#5599ff');
+
+// 一根棍子(代表骨骼), 初始沿X方向
+const stick=new THREE.Group();
+const body=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.1,0.1),
+  new THREE.MeshStandardMaterial({color:'#f78166'}));
+body.position.set(0.7,0,0); stick.add(body);
+const tip=new THREE.Mesh(new THREE.SphereGeometry(0.08,12,12),
+  new THREE.MeshStandardMaterial({color:'#ffd166'}));
+tip.position.set(1.4,0,0); stick.add(tip);
+scene.add(stick);
+
+// 绕指定轴转
+window.rot=function(axis,deg){
+  const q=new THREE.Quaternion();
+  const v = axis==='x'?new THREE.Vector3(1,0,0) : axis==='y'?new THREE.Vector3(0,1,0) : new THREE.Vector3(0,0,1);
+  q.setFromAxisAngle(v,THREE.MathUtils.degToRad(deg));
+  stick.quaternion.premultiply(q);
+  // 显示当前绕各轴角度
+  const e=new THREE.Euler().setFromQuaternion(stick.quaternion,'XYZ');
+  document.getElementById('info').innerHTML=`绕 ${axis.toUpperCase()} 轴转 ${deg}° → 当前: X=${THREE.MathUtils.radToDeg(e.x).toFixed(0)}° Y=${THREE.MathUtils.radToDeg(e.y).toFixed(0)}° Z=${THREE.MathUtils.radToDeg(e.z).toFixed(0)}° | 拖拽旋转视角`;
+};
+window.reset=function(){stick.quaternion.identity();document.getElementById('info').innerHTML='🧠 红=X轴(左右) 绿=Y轴(上下) 蓝=Z轴(前后) | 拖拽旋转视角';};
+
+function anim(){requestAnimationFrame(anim);ctrl.update();rnd.render(scene,cam);}
+window.addEventListener('resize',()=>{cam.aspect=C.clientWidth/C.clientHeight;cam.updateProjectionMatrix();rnd.setSize(C.clientWidth,C.clientHeight);});
+anim();
+</script>
+</body>
+</html>

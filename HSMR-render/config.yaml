@@ -1,0 +1,63 @@
+# HSMR-render 独立渲染服务配置
+# 职责: POST /joint 触发 → 自抓 foxglove 帧 → 完整 HSMR 推理拿网格参数
+#       → SKEL 蒙皮+骨骼 2D 叠加渲染 → 入渲染队列; 后台再渲染后 N 帧.
+# 注意: 本服务只渲染不入 3D 位置/朝向返回 (那是 HSMR-infer 的事).
+
+hsrm_root: "/home/Kai/pose_model/HSMR-main"     # 本地; 远程改 "/home/naviai/projects/HSMR/HSMR-main"
+                                                # 原工程根: lib/ thirdparty/ deploy/onnx 都以它为基准
+
+# 数据源: foxglove(ROS2 bridge) 或 rosbridge(ROS1)
+source: "rosbridge"             # foxglove | rosbridge
+
+bridge:
+  url: "ws://localhost:8768"                    # foxglove bridge (host 网络下用 localhost)
+  rosbridge_url: "ws://localhost:9090"          # ROS1 rosbridge websocket
+
+topics:
+  prefix: "/zj_humanoid/sensor/realsense_head"
+  # 实际订阅列表由 main.py 拼接: color/compressed + aligned_depth_to_color/compressedDepth
+  #                                + camera_info + /tf_static + /tf (位置坐标系变换)
+  # rosbridge(ROS1) 时用显式 topic 名 (用户可按机器人实际话题改):
+  ros1:
+    color: "/zj_humanoid/sensor/realsense_head/color/image_raw"
+    depth: "/zj_humanoid/sensor/realsense_head/aligned_depth_to_color/image_raw/compressed"
+    info: "/zj_humanoid/sensor/realsense_head/aligned_depth_to_color/camera_info"
+    tf_static: "/tf_static"
+    tf: "/tf"
+
+# 坐标系变换 (与 joint_service 一致): 光学系→HEAD/BASE/world
+frames:
+  optical: "realsense_head_color_optical_frame"
+  head: "HEAD"
+
+# 仅 HEAD 的兜底矩阵 (已验证 = /tf_static 实测值, 防止 /tf_static 未到时 HEAD 报错)。
+# TF 优先: /tf_static 到了就用 topic 的, 未到/没有才用这个。BASE/world 仍纯 TF。
+head_to_optical_fallback:
+  - [-0.04183417, -0.23690926, 0.97063067, 0.06555138]
+  - [-0.99910734, 0.01562472, -0.03924787, 0.03293372]
+  - [-0.00586765, -0.97140613, -0.23735143, 0.12592015]
+  - [0.0, 0.0, 0.0, 1.0]
+
+model:
+  device: "cuda:0"              # GPU (CUDA torch + onnxruntime)
+  onnx_device: "cuda:0"
+  onnx_model: "deploy/onnx/artifacts/hsmr_full_fp16.onnx"     # 相对 hsrm_root
+  model_root: "data_inputs/released_models/HSMR-ViTH-r1d1"    # 相对 hsrm_root
+
+detector:
+  max_img_size: 512
+  use_amp: true                # FP16 加速检测器 (~3倍快)
+
+max_instances: 5               # 每帧最多检测人数
+background_interval: 0         # 后台推理线程间隔; 0=关闭, 由 POST 触发实时推理 (推荐)
+
+render:
+  next_frames: 4               # POST 后后台渲染的后几帧 (0=关闭)
+  next_frame_interval: 0       # 秒; 0=不人为 sleep, 靠每帧 ~2.2s 推理自然间隔
+  out_dir: "data_outputs/render"    # 相对本工程根 (HSMR-render), 保持 HSMR-main 干净
+  save_output: true            # 是否把渲染图写盘 (debug 用)
+  glow_enabled: true           # 选中关节光晕开关 (false 则只画蒙皮+骨骼)
+
+server:
+  host: "0.0.0.0"
+  port: 8011                   # 避开旧 joint_service 8002 / hsmr-infer 8010

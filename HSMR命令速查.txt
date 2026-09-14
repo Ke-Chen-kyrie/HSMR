@@ -1,0 +1,153 @@
+========================================
+ HSMR 部署 & 基座镜像命令速查
+ 远程: naviai@192.168.217.100
+ 仓库: guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent
+========================================
+
+【0】登录阿里云仓库 (只登录一次)
+========================================
+docker login --username=guopeilin@1695117676220798 guopeilin-registry.cn-hangzhou.cr.aliyuncs.com
+密码: naviai2026
+
+【1】拉取基座镜像 user-identification (已 push, 可直接拉)
+========================================
+docker pull guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent/user-identification:20260831
+
+# 当构建基座用 (两个 HSMR Dockerfile 都是 FROM user-identification:latest):
+docker tag guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent/user-identification:20260831 user-identification:latest
+
+【2】一键部署 (在本地开发机 /home/Kai/pose_model/HSMR 下跑)
+========================================
+# 全流程: 推代码 → 远程构建镜像 → 起容器 → 等模型就绪
+bash deploy_hsmr.sh
+
+# 只推代码不构建 (先 review):
+bash deploy_hsmr.sh --sync-only
+
+# 只构建+起容器 (代码已同步时, 可在远程跑):
+bash deploy_hsmr.sh --build-only
+
+# 自定义远程密码:
+HSMR_SSH_PASS=xxx bash deploy_hsmr.sh
+
+【2.5】拉取 hsmr 镜像 (已 push, 可直接拉)
+========================================
+docker pull guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent/hsmr-render:20260831
+docker pull guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent/hsmr-infer:20260831   # 若已构建
+
+【3】空白机器人还原 (先在现役机打包, 再在新机还原)
+========================================
+# 3.1 现役 Jetson 上打包 (产物在 ~/):
+bash /home/naviai/projects/HSMR/pack_hsmr_bundle.sh
+#     → ~/hsmr_base_image.tar + ~/hsmr-build-bundle.tar.gz
+
+# 3.2 传到新机后, 新机上还原:
+bash ~/bootstrap_remote.sh
+# 3.3 回本地机执行: bash deploy_hsmr.sh
+
+【4】部署后验证
+========================================
+curl http://192.168.217.100:8010/health    # infer  (等 model_loaded:true)
+curl http://192.168.217.100:8011/health    # render (等 model_loaded:true)
+
+# 查看容器:
+docker ps --filter "name=^/hsmr-" --format "table {{.Names}}\t{{.Status}}\t{{.Image}}"
+
+【5】手动起容器 (跳过 deploy_hsmr.sh 时)
+========================================
+cd /home/naviai/projects/HSMR/hsmr-infer-image
+sed -i 's#image: .*hsmr-infer:.*#image: guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent/hsmr-infer:20260831#' docker-compose.yml
+docker compose up -d
+
+cd /home/naviai/projects/HSMR/hsmr-render-image
+sed -i 's#image: .*hsmr-render:.*#image: guopeilin-registry.cn-hangzhou.cr.aliyuncs.com/erban_agent/hsmr-render:20260831#' docker-compose.yml
+docker compose up -d
+
+# render 数据源默认 rosbridge(ROS1); 切回 foxglove(ROS2) 改 config.yaml:
+#   source: "rosbridge"  →  source: "foxglove"
+vim /home/naviai/projects/HSMR/hsmr-render-image/app/config.yaml
+#   改后重建镜像再起 (或 docker compose up -d 不重建则不生效, 需 build)
+
+========================================
+ 已推送的镜像 tag 记录
+========================================
+user-identification:20260831  (本次新推, digest 082ea509a5e2)
+user-identification:20260716  (旧版, 仓库已有)
+hsmr-render:20260831           (新推, 含 rosbridge 支持, digest 294d1c363c47)
+hsmr-infer:20260817            (旧容器用)
+hsmr-render:20260817           (旧容器用)
+【6】接口测试 POST 请求 (远程机器上执行, 或本地把 127.0.0.1 换成 192.168.217.100)
+========================================
+# 6.1 触发渲染 POST /joint (8011 render; 检测到人才成功, 抓 foxglove 相机流)
+#     选中左手+头 (value=1 表示选中):
+curl -s -X POST http://127.0.0.1:8011/joint \
+  -H "Content-Type: application/json" \
+  -d '{"hand_l":1,"head":1}'
+
+# 全身整体渲染 (body 关键字 = 全部 24 关节):
+curl -s -X POST http://127.0.0.1:8011/joint \
+  -H "Content-Type: application/json" \
+  -d '{"body":1}'
+
+# 只渲染头, 指定渲染第 2 个人 (person_index=1, 0 起):
+curl -s -X POST http://127.0.0.1:8011/joint?person_index=1 \
+  -H "Content-Type: application/json" \
+  -d '{"head":1}'
+
+# 一次渲染所有检测到的人 (person_index=all):
+curl -s -X POST "http://127.0.0.1:8011/joint?person_index=all" \
+  -H "Content-Type: application/json" \
+  -d '{"head":1,"hand_r":1}'
+
+# 响应示例:
+# {"queued":true,"queue_size":1,"timestamp":1788320014.78,"rendered_seq":0,
+#  "next_frames":4,"person_index":0,"all_persons":false,"num_persons":2,
+#  "joints":["head"],"joints_cn":["头"],"glow":true,"infer_ms":1875.7,"bg_started":true}
+
+# 6.2 上传图片推理 POST /infer (8010 纯推理 / 8011 渲染, 同一份输入):
+#     只传彩色图:
+curl -s -X POST http://127.0.0.1:8010/infer \
+  -F "image=@/path/to/rgb.jpg"
+
+#     彩色 + 深度融合 (需同时给 fx/fy/cx/cy):
+curl -s -X POST http://127.0.0.1:8010/infer \
+  -F "image=@/path/to/rgb.jpg" \
+  -F "depth=@/path/to/depth.png" \
+  -F "fx=600" -F "fy=600" -F "cx=640" -F "cy=360"
+
+#     render 同款 (接收 8010 转发的同一份输入):
+curl -s -X POST http://127.0.0.1:8011/infer \
+  -F "image=@/path/to/rgb.jpg"
+
+# 6.3 取渲染结果 (队列状态 / 取一张图, 取出即移除):
+curl -s http://127.0.0.1:8011/render/queue
+curl -s http://127.0.0.1:8011/render/pop | python3 -c "
+import sys, json, base64
+d = json.load(sys.stdin)
+r = d.get('rendered')
+if r:
+    open('/tmp/render.jpg','wb').write(base64.b64decode(r['image_base64']))
+    print('saved', r['joints'], '-> /tmp/render.jpg')
+else:
+    print('queue empty')
+"
+
+# 6.4 关节名 (中英文均可): pelvis/骨盆, femur_r/右髋, tibia_r/右膝, talus_r/右踝,
+#     calcn_r/右跟骨, toes_r/右趾, femur_l/左髋, tibia_l/左膝, talus_l/左踝,
+#     calcn_l/左跟骨, toes_l/左趾, lumbar_body/腰椎, thorax/胸椎, head/头,
+#     scapula_r/右肩胛, humerus_r/右肩, ulna_r/右肘, radius_r/右前臂, hand_r/右手,
+#     scapula_l/左肩胛, humerus_l/左肩, ulna_l/左肘, radius_l/左前臂, hand_l/左手
+#     另有 body/整体/全身 表示全部
+
+========================================
+ 查找 agent 进程 & 查看输出 (远程机器人)
+========================================
+# 一条命令: 找 proactive_agent 的 PID + 跟踪它在读写什么
+PID=$(pgrep -f "proactive_agent.*main.py") && echo "PID=$PID" && strace -p $PID -f -tt -e trace=read,write 2>&1 | tail -200
+
+# 两步版: 找 PID + 实时看它的标准输出 (无需 sudo)
+PID=$(pgrep -f "proactive_agent.*main.py") && echo "PID=$PID" && cat /proc/$PID/fd/1 && tail -f /proc/$PID/fd/1
+
+# 查所有 agent 进程 / 容器
+ps aux | grep -iE "agent" | grep -v grep
+docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Image}}" | grep -i agent

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>骨骼旋转轴 vs 骨骼朝向 (验证数据)</title>
+<style>
+  :root{--bg:#0d1117;--pnl:#161b22;--txt:#c9d1d9}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--txt);height:100vh;display:flex;overflow:hidden}
+  #c3d{flex:1;position:relative;cursor:grab}#c3d:active{cursor:grabbing}
+  #pn{width:400px;background:var(--pnl);padding:14px;overflow-y:auto;border-left:1px solid #30363d;font-size:11.5px;line-height:1.5;display:flex;flex-direction:column;gap:8px}
+  h2{font-size:15px;color:#e6edf3;border-bottom:1px solid #30363d;padding-bottom:5px}
+  .card{background:#0d1117;border-radius:5px;padding:8px 10px;border:1px solid #21262d}
+  .tt{font-weight:700;font-size:12px;color:#ffd166;margin-bottom:4px}
+  select{width:100%;padding:5px;background:#21262d;color:var(--txt);border:1px solid #30363d;border-radius:4px;font-size:11px}
+  .info{font-family:monospace;font-size:10px;background:#0d1117;padding:6px;border-radius:4px;line-height:1.5}
+  .ref{font-size:9px;color:#8b949e}
+  .ref-y{font-size:9px;color:#d2991d}
+  .legend{display:flex;gap:14px;font-size:10px;margin:4px 0;flex-wrap:wrap}
+  .legend span{display:flex;align-items:center;gap:4px}
+  .dofbadge{display:inline-block;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:bold;color:#fff}
+  .dof1{background:#58a6ff}.dof2{background:#3fb950}.dof3{background:#a371f7}
+  .ht{font-size:10px;color:#8b949e;text-align:center;margin-top:auto;padding-top:6px;border-top:1px solid #21262d}
+</style>
+</head>
+<body>
+<div id="c3d"></div>
+<div id="pn">
+  <h2>🦴 骨骼旋转轴 vs 骨骼朝向</h2>
+  <p style="font-size:10px;color:#8b949e">
+    数据来自 SKEL 模型运行 + JOINTS_DEF（验证）
+  </p>
+
+  <div class="card">
+    <div class="tt">🔍 选择骨骼</div>
+    <select id="jointSel" onchange="showBone()"></select>
+    <div id="boneInfo" class="info" style="margin-top:6px">选择一块骨骼...</div>
+  </div>
+
+  <div class="legend">
+    <span><span style="color:#ffd166">━</span> 旋转轴(模型空间)</span>
+    <span><span style="color:#4dd0e1">━</span> 骨骼长轴</span>
+    <span><span style="color:#888">━</span> 骨架</span>
+  </div>
+
+  <div class="card">
+    <div class="tt">🎓 DOF（自由度）= 关节能独立转动的轴数</div>
+    <p class="ref">
+      <span class="dofbadge dof1">1 DOF</span> 铰链（只能屈伸）→ 膝、踝、肘、趾<br>
+      <span class="dofbadge dof2">2 DOF</span> 腕（屈伸+侧摆）<br>
+      <span class="dofbadge dof3">3 DOF</span> 球关节（任意方向）→ 肩、髋、脊柱<br><br>
+      SKEL: 12×1 + 2×2 + 10×3 = <b>46 自由度</b> = 46 姿态参数
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="tt">📐 怎么读</div>
+    <p class="ref">
+      每块骨骼画 <b>旋转轴</b>（黄）和 <b>骨骼长轴</b>（青）。<br>
+      论文："SKEL's rotation axes are <b>bone-aligned</b>"<br><br>
+      · <b>铰链</b>（膝/踝/肘）：旋转轴 ⊥ 骨骼长轴（夹角≈90°）<br>
+      · <b>旋转 DOF</b>（前臂旋前/旋后、肩髋旋转）：旋转轴 ∥ 骨骼长轴（夹角≈0°）<br>
+      · <b>球关节</b>（肩/髋 3-DOF）：一根轴∥骨骼，两根⊥骨骼
+    </p>
+  </div>
+
+  <div class="ht">🖱️ 左键旋转 &#8226; 滚轮缩放 &#8226; 右键平移</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}
+</script>
+<script src="_bone_axes_data.js"></script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+const D = window.BONE_AXES_DATA;
+const BONE_NAMES = D.bone_names;
+const BONES = [[0,11],[11,12],[12,13],[0,1],[1,2],[2,3],[3,4],[4,5],[0,6],[6,7],[7,8],[8,9],[9,10],[12,14],[14,15],[15,16],[16,17],[17,18],[12,19],[19,20],[20,21],[21,22],[22,23]];
+
+const C = document.getElementById('c3d');
+const scene = new THREE.Scene(); scene.background = new THREE.Color('#0d1117');
+const cam = new THREE.PerspectiveCamera(42, C.clientWidth/C.clientHeight, 0.05, 30);
+cam.position.set(2, 1.2, 4); cam.lookAt(0, -0.35, 0);
+const rnd = new THREE.WebGLRenderer({antialias:true});
+rnd.setSize(C.clientWidth, C.clientHeight); rnd.setPixelRatio(Math.min(window.devicePixelRatio,2));
+C.appendChild(rnd.domElement);
+const lr = new CSS2DRenderer();
+lr.setSize(C.clientWidth, C.clientHeight);
+lr.domElement.style.position='absolute';lr.domElement.style.top='0';lr.domElement.style.pointerEvents='none';
+C.appendChild(lr.domElement);
+const ctrl = new OrbitControls(cam, rnd.domElement);
+ctrl.target.set(0, -0.35, 0); ctrl.enableDamping=true; ctrl.update();
+scene.add(new THREE.AmbientLight('#ffffff', 0.6));
+scene.add(new THREE.GridHelper(10, 10, '#21262d', '#161b22'));
+
+const ROOT = new THREE.Group(); scene.add(ROOT);
+const RIGHT = [1,2,3,4,5,14,15,16,17,18];
+
+function arrow(origin, dir, len, color) {
+  const a = new THREE.ArrowHelper(new THREE.Vector3(...dir), new THREE.Vector3(...origin), len, color, 0.06, 0.04);
+  return a;
+}
+
+function rebuild() {
+  while (ROOT.children.length) ROOT.remove(ROOT.children[0]);
+  const J = D.joints;
+
+  // 骨架
+  BONES.forEach(([a,b]) => {
+    const pts = [new THREE.Vector3(...J[a]), new THREE.Vector3(...J[b])];
+    ROOT.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({color:'#555'})));
+  });
+
+  // 每块骨骼: 关节球 + 旋转轴(黄) + 骨骼长轴(青)
+  D.bones.forEach(b => {
+    const jp = J[b.jid];
+    const col = RIGHT.includes(b.jid) ? '#f78166' : '#58a6ff';
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 10),
+      new THREE.MeshStandardMaterial({color:col, roughness:0.3}));
+    s.position.set(...jp); ROOT.add(s);
+
+    // 骨骼长轴 (青)
+    const ba = b.bone_axis;
+    ROOT.add(arrow(jp, ba, 0.22, '#4dd0e1'));
+
+    // 旋转轴 (黄, 每个DOF一根)
+    b.global_axes.forEach(g => {
+      ROOT.add(arrow(jp, g, 0.32, '#ffd166'));
+    });
+  });
+}
+
+function showBone() {
+  const jid = parseInt(document.getElementById('jointSel').value);
+  const b = D.bones[jid];
+  const def = D.parent[jid] === -1 ? '无(根)' : BONE_NAMES[D.parent[jid]];
+  const badge = b.dof===1 ? '<span class="dofbadge dof1">1DOF</span>'
+              : b.dof===2 ? '<span class="dofbadge dof2">2DOF</span>'
+              : '<span class="dofbadge dof3">3DOF</span>';
+  let html = `<b style="color:#ffd166">${b.name}</b> (jid=${jid}) ${badge} &nbsp; 父=${def}<br>`;
+  html += `骨骼长轴(青): [${b.bone_axis.map(x=>x.toFixed(3)).join(', ')}]<br><br>`;
+  html += '<b>旋转轴(黄, 每个DOF一根, 模型空间):</b><br>';
+  b.global_axes.forEach((g, i) => {
+    html += `&nbsp;轴${i}: [${g.map(x=>x.toFixed(3)).join(', ')}] &nbsp; 与骨骼夹角 <b>${b.axis_bone_angle_deg[i]}°</b><br>`;
+  });
+  html += `<br><span class="ref-y">`;
+  b.axis_bone_angle_deg.forEach(a => {
+    if (a > 80) html += `· 夹角≈90° → 铰链轴(⊥骨骼)<br>`;
+    else if (a < 10) html += `· 夹角≈0° → 旋转轴(∥骨骼, 绕自身转)<br>`;
+    else html += `· 夹角${a}° → 混合/斜轴<br>`;
+  });
+  html += `</span><br><span class="ref">来源: JOINTS_DEF(局部轴) + joints_ori(转到模型空间)</span>`;
+  document.getElementById('boneInfo').innerHTML = html;
+}
+
+// 填充选择框
+(function(){
+  const sel = document.getElementById('jointSel');
+  BONE_NAMES.forEach((n, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${i}: ${n} (${D.bones[i].dof} DOF)`;
+    sel.appendChild(o);
+  });
+  sel.value = 16; // 默认 ulna (肘)
+})();
+
+rebuild(); showBone();
+
+function anim(){ requestAnimationFrame(anim); ctrl.update(); rnd.render(scene,cam); lr.render(scene,cam); }
+window.addEventListener('resize', ()=>{
+  cam.aspect = C.clientWidth/C.clientHeight; cam.updateProjectionMatrix();
+  rnd.setSize(C.clientWidth, C.clientHeight); lr.setSize(C.clientWidth, C.clientHeight);
+});
+anim();
+</script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# HSMR 推理核心 + 单端口服务依赖 (训练/渲染相关已剔除).
+# 注: detectron2 无官方 wheel, 需从源码构建 (与原工程一致).
+#     pyrender/matplotlib 属渲染链, 本工程不含, 不装.
+numpy
+opencv-python-headless
+torch
+torchvision
+onnx>=1.16
+onnxruntime>=1.18
+hydra-core
+omegaconf
+pytorch-lightning
+rich
+smplx
+detectron2
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+PyYAML>=6.0
